@@ -1,0 +1,17 @@
+# Cursor Rules — CuniSmart (MVP)
+
+## Master sources of truth
+- Always read `AGENTS.md` first.
+- Use `agent_docs/` for detailed guidance:
+  - `agent_docs/tech_stack.md`
+  - `agent_docs/code_patterns.md`
+  - `agent_docs/product_requirements.md`
+  - `agent_docs/testing.md`
+
+## Directives
+- Plan first before editing multiple files.
+- Build one MVP must-have feature at a time.
+- Verify after each feature (tests + quick manual offline + accessibility check).
+- Do not add features outside MVP scope.
+- Do not change CI/deployment, migrations, or IoT protocol decisions without explicit approval.
+
