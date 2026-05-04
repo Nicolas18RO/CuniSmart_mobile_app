@@ -5,12 +5,31 @@ allprojects {
     }
 }
 
+// Flutter plugins (e.g. speech_to_text) reference `flutter.compileSdkVersion` / `flutter.ndkVersion`
+// before the app module applies the Flutter Gradle Plugin extension. Provide a compatible map on
+// every subproject except `:app`, which uses the real Flutter extension from dev.flutter.
+ext {
+    flutterCompileSdkVersion = 36
+    flutterNdkVersion = "27.0.12077973"
+}
+
+subprojects { subproject ->
+    subproject.beforeEvaluate {
+        if (subproject.name == "app") {
+            return
+        }
+        if (!subproject.ext.has("flutter")) {
+            subproject.ext.flutter = [
+                    compileSdkVersion: rootProject.ext.flutterCompileSdkVersion,
+                    ndkVersion        : rootProject.ext.flutterNdkVersion,
+            ]
+        }
+    }
+}
+
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
-    project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {

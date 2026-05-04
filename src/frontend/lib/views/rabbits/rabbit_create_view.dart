@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/state/submit_state.dart';
 import '../../models/rabbit.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
+import '../../viewmodels/voice_viewmodel.dart';
 
 /// Formats [d] as `YYYY-MM-DD` for the API (same file helper).
 String _formatRabbitBirthDateYmd(DateTime d) {
@@ -92,9 +93,8 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
         fontSize: 16,
         color: scheme.onSurface.withOpacity(0.55),
       ),
-      suffixIcon: calendarSuffix
-          ? const Icon(Icons.calendar_today_outlined)
-          : null,
+      suffixIcon:
+          calendarSuffix ? const Icon(Icons.calendar_today_outlined) : null,
     );
   }
 
@@ -208,6 +208,8 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<RabbitViewModel>();
+    final voice = context.watch<VoiceViewModel>();
+    final voiceBanner = voice.isProcessing || voice.voice.isListening;
     final submitting = vm.isSubmitting;
     final submitError = switch (vm.submitState) {
       SubmitFailed(:final message) => message,
@@ -228,142 +230,204 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
           ),
         ),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          children: [
-            Text(
-              isEdit
-                  ? 'Actualice los datos abajo.'
-                  : 'Complete cada campo. * significa obligatorio.',
-              style: textTheme.bodyLarge?.copyWith(
-                color: scheme.onSurface.withOpacity(0.85),
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 24),
-            TextFormField(
-              controller: _name,
-              enabled: !submitting,
-              style: _fieldTextStyle(context),
-              decoration: _decoration(context, 'Nombre *'),
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Escriba el nombre' : null,
-            ),
-            const SizedBox(height: _fieldGap),
-            TextFormField(
-              controller: _breed,
-              enabled: !submitting,
-              style: _fieldTextStyle(context),
-              decoration: _decoration(context, 'Raza *'),
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Escriba la raza' : null,
-            ),
-            const SizedBox(height: _fieldGap),
-            DropdownButtonFormField<String>(
-              value: _sex,
-              decoration: _decoration(context, 'Sexo *'),
-              style: _fieldTextStyle(context),
-              items: const [
-                DropdownMenuItem(value: 'male', child: Text('Macho')),
-                DropdownMenuItem(value: 'female', child: Text('Hembra')),
-              ],
-              onChanged: submitting
-                  ? null
-                  : (v) => setState(() => _sex = v ?? 'male'),
-            ),
-            const SizedBox(height: _fieldGap),
-            TextFormField(
-              controller: _birthDate,
-              readOnly: true,
-              enabled: !submitting,
-              style: _fieldTextStyle(context),
-              decoration: _decoration(
-                context,
-                'Fecha de nacimiento *',
-                hint: 'Toca para elegir',
-                calendarSuffix: true,
-              ),
-              onTap: submitting ? null : () => _pickBirthDate(context),
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Elija la fecha de nacimiento' : null,
-            ),
-            const SizedBox(height: _fieldGap),
-            TextFormField(
-              controller: _weight,
-              enabled: !submitting,
-              style: _fieldTextStyle(context),
-              decoration: _decoration(
-                context,
-                'Peso (kg)',
-                hint: 'Opcional — deje vacío si no sabe',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            ),
-            const SizedBox(height: _fieldGap),
-            DropdownButtonFormField<String>(
-              value: _status,
-              decoration: _decoration(context, 'Estado *'),
-              style: _fieldTextStyle(context),
-              items: const [
-                DropdownMenuItem(value: 'active', child: Text('Activo')),
-                DropdownMenuItem(value: 'sold', child: Text('Vendido')),
-                DropdownMenuItem(value: 'deceased', child: Text('Fallecido')),
-              ],
-              onChanged: submitting
-                  ? null
-                  : (v) => setState(() => _status = v ?? 'active'),
-            ),
-            const SizedBox(height: _fieldGap),
-            TextFormField(
-              controller: _notes,
-              enabled: !submitting,
-              style: _fieldTextStyle(context),
-              decoration: _decoration(
-                context,
-                'Notas',
-                hint: 'Opcional',
-              ),
-              maxLines: 3,
-            ),
-            if (submitError != null) ...[
-              const SizedBox(height: 20),
-              Text(
-                submitError,
-                style: textTheme.bodyLarge?.copyWith(
-                  color: scheme.error,
-                  fontWeight: FontWeight.w600,
-                  height: 1.4,
-                ),
-              ),
-            ],
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  textStyle: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'voice_mic_create',
+        tooltip: voice.isVoiceModeEnabled ? 'Detener y procesar' : 'Voz',
+        backgroundColor: voice.isVoiceModeEnabled
+            ? scheme.errorContainer
+            : scheme.secondaryContainer,
+        foregroundColor: voice.isVoiceModeEnabled
+            ? scheme.onErrorContainer
+            : scheme.onSecondaryContainer,
+        onPressed: submitting
+            ? null
+            : () async {
+                await context.read<VoiceViewModel>().toggleMicrophone();
+              },
+        child: const Icon(Icons.mic),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      body: Stack(
+        children: [
+          Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                Text(
+                  isEdit
+                      ? 'Actualice los datos abajo.'
+                      : 'Complete cada campo. * significa obligatorio.',
+                  style: textTheme.bodyLarge?.copyWith(
+                    color: scheme.onSurface.withOpacity(0.85),
+                    height: 1.45,
                   ),
                 ),
-                onPressed: submitting ? null : () => _submit(vm),
-                child: submitting
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      )
-                    : Text(isEdit ? 'Guardar cambios' : 'Crear'),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: _name,
+                  enabled: !submitting,
+                  style: _fieldTextStyle(context),
+                  decoration: _decoration(context, 'Nombre *'),
+                  validator: (v) => v == null || v.trim().isEmpty
+                      ? 'Escriba el nombre'
+                      : null,
+                ),
+                const SizedBox(height: _fieldGap),
+                TextFormField(
+                  controller: _breed,
+                  enabled: !submitting,
+                  style: _fieldTextStyle(context),
+                  decoration: _decoration(context, 'Raza *'),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Escriba la raza' : null,
+                ),
+                const SizedBox(height: _fieldGap),
+                DropdownButtonFormField<String>(
+                  value: _sex,
+                  decoration: _decoration(context, 'Sexo *'),
+                  style: _fieldTextStyle(context),
+                  items: const [
+                    DropdownMenuItem(value: 'male', child: Text('Macho')),
+                    DropdownMenuItem(value: 'female', child: Text('Hembra')),
+                  ],
+                  onChanged: submitting
+                      ? null
+                      : (v) => setState(() => _sex = v ?? 'male'),
+                ),
+                const SizedBox(height: _fieldGap),
+                TextFormField(
+                  controller: _birthDate,
+                  readOnly: true,
+                  enabled: !submitting,
+                  style: _fieldTextStyle(context),
+                  decoration: _decoration(
+                    context,
+                    'Fecha de nacimiento *',
+                    hint: 'Toca para elegir',
+                    calendarSuffix: true,
+                  ),
+                  onTap: submitting ? null : () => _pickBirthDate(context),
+                  validator: (v) => v == null || v.trim().isEmpty
+                      ? 'Elija la fecha de nacimiento'
+                      : null,
+                ),
+                const SizedBox(height: _fieldGap),
+                TextFormField(
+                  controller: _weight,
+                  enabled: !submitting,
+                  style: _fieldTextStyle(context),
+                  decoration: _decoration(
+                    context,
+                    'Peso (kg)',
+                    hint: 'Opcional — deje vacío si no sabe',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: _fieldGap),
+                DropdownButtonFormField<String>(
+                  value: _status,
+                  decoration: _decoration(context, 'Estado *'),
+                  style: _fieldTextStyle(context),
+                  items: const [
+                    DropdownMenuItem(value: 'active', child: Text('Activo')),
+                    DropdownMenuItem(value: 'sold', child: Text('Vendido')),
+                    DropdownMenuItem(
+                        value: 'deceased', child: Text('Fallecido')),
+                  ],
+                  onChanged: submitting
+                      ? null
+                      : (v) => setState(() => _status = v ?? 'active'),
+                ),
+                const SizedBox(height: _fieldGap),
+                TextFormField(
+                  controller: _notes,
+                  enabled: !submitting,
+                  style: _fieldTextStyle(context),
+                  decoration: _decoration(
+                    context,
+                    'Notas',
+                    hint: 'Opcional',
+                  ),
+                  maxLines: 3,
+                ),
+                if (submitError != null) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    submitError,
+                    style: textTheme.bodyLarge?.copyWith(
+                      color: scheme.error,
+                      fontWeight: FontWeight.w600,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      textStyle: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: submitting ? null : () => _submit(vm),
+                    child: submitting
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          )
+                        : Text(isEdit ? 'Guardar cambios' : 'Crear'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (voiceBanner)
+            Align(
+              alignment: Alignment.topCenter,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Material(
+                    elevation: 2,
+                    borderRadius: BorderRadius.circular(999),
+                    color: scheme.surfaceContainerHighest.withOpacity(0.92),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            voice.isProcessing
+                                ? Icons.hourglass_top
+                                : Icons.mic,
+                            size: 20,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            voice.isProcessing ? 'Procesando…' : 'Escuchando…',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
