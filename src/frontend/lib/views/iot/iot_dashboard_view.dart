@@ -49,13 +49,13 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Farm sensors'),
+        title: const Text('CuniSmart - IoT'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed:
                 sensorVm.isLoading ? null : () => sensorVm.loadSensorReadings(),
-            tooltip: 'Refresh',
+            tooltip: 'Actualizar',
           ),
         ],
       ),
@@ -139,7 +139,7 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Could not load sensor readings',
+                'No se pudieron cargar las lecturas',
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.center,
               ),
@@ -150,7 +150,7 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
                 onPressed:
                     sensorVm.isLoading ? null : () => sensorVm.loadSensorReadings(),
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: const Text('Reintentar'),
               ),
             ],
           ),
@@ -184,7 +184,7 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
                   onPressed: sensorVm.isLoading
                       ? null
                       : () => sensorVm.loadSensorReadings(),
-                  child: const Text('Retry'),
+                  child: const Text('Reintentar'),
                 ),
               ],
             ),
@@ -225,7 +225,7 @@ class _IoTDashboardScroll extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
-        const _SectionTitle('Farm overview', 'Right now'),
+        const _SectionTitle('La granja', 'Ahora'),
         const SizedBox(height: 8),
         _FarmOverviewCard(
           temperatureC: sensorVm.latestRoomTemperature,
@@ -234,7 +234,7 @@ class _IoTDashboardScroll extends StatelessWidget {
           noData: readingsEmpty,
         ),
         const SizedBox(height: 24),
-        const _SectionTitle('Rabbits', 'Latest weight only'),
+        const _SectionTitle('Eventos de peso', 'Último peso por conejo'),
         const SizedBox(height: 8),
         _RabbitsSummaryBlock(
           sensorVm: sensorVm,
@@ -248,7 +248,7 @@ class _IoTDashboardScroll extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-        const _SectionTitle('Alerts', 'Things to check'),
+        const _SectionTitle('Alertas', 'Cosas a revisar'),
         const SizedBox(height: 8),
         _AlertsBlock(alerts: alerts, readingsEmpty: readingsEmpty),
       ],
@@ -284,12 +284,12 @@ void _openRabbitWeightDetail(
               ),
               const SizedBox(height: 4),
               Text(
-                'Recent weights (newest first)',
+                'Últimos pesos (el más reciente primero)',
                 style: Theme.of(ctx).textTheme.bodyMedium,
               ),
               const SizedBox(height: 12),
               if (history.isEmpty)
-                const Text('No weight readings for this rabbit yet.')
+                const Text('Aún no hay pesos para este conejo.')
               else
                 ListView.separated(
                   shrinkWrap: true,
@@ -327,10 +327,10 @@ List<String> _computeAlerts(SensorViewModel vm, RabbitViewModel rabbitVm) {
   final temp = vm.latestRoomTemperature;
 
   if (water != null && water < _kLowWaterPercent) {
-    out.add('Water tank looks low. Check the tank soon.');
+    out.add('El tanque tiene poca agua. Revíselo pronto.');
   }
   if (temp != null && temp > _kHighTempC) {
-    out.add('Room is very warm. Check ventilation or shade.');
+    out.add('Hace mucho calor en el ambiente. Revise ventilación o sombra.');
   }
 
   final byRabbit = <int, List<SensorReading>>{};
@@ -347,7 +347,7 @@ List<String> _computeAlerts(SensorViewModel vm, RabbitViewModel rabbitVm) {
     if (latest < prior - _kWeightDropAbsKg ||
         (prior > 0 && latest < prior * _kWeightDropRatio)) {
       out.add(
-        'Weight went down for ${_rabbitLabel(entry.key, rabbitVm)}. Take a look.',
+        'El peso bajó en ${_rabbitLabel(entry.key, rabbitVm)}. Revise.',
       );
     }
   }
@@ -366,14 +366,14 @@ Map<int, double> _latestWeightByRabbit(SensorViewModel vm) {
 }
 
 String _rabbitLabel(int rabbitId, RabbitViewModel? rabbitVm) {
-  if (rabbitVm == null) return 'Rabbit #$rabbitId';
+  if (rabbitVm == null) return 'Conejo #$rabbitId';
   final state = rabbitVm.listState;
   if (state is AsyncSuccess<List<Rabbit>>) {
     for (final r in state.data) {
       if (r.id == rabbitId) return r.name;
     }
   }
-  return 'Rabbit #$rabbitId';
+  return 'Conejo #$rabbitId';
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -418,10 +418,10 @@ class _FarmOverviewCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
 
     final statusLabel = noData
-        ? 'No sensor data yet'
+        ? 'Aún no hay datos del sensor'
         : switch (status) {
-            _FarmStatus.normal => 'Status: All normal',
-            _FarmStatus.warning => 'Status: Needs attention',
+            _FarmStatus.normal => 'Estado: todo normal',
+            _FarmStatus.warning => 'Estado: requiere atención',
           };
 
     final statusColor = noData
@@ -444,8 +444,8 @@ class _FarmOverviewCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     temperatureC != null
-                        ? 'Room: ${temperatureC!.toStringAsFixed(1)} °C'
-                        : 'Room temperature: —',
+                        ? 'Temperatura ambiente: ${temperatureC!.toStringAsFixed(1)} °C'
+                        : 'Temperatura ambiente: —',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -459,8 +459,8 @@ class _FarmOverviewCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     waterPercent != null
-                        ? 'Water tank: ${waterPercent!.toStringAsFixed(0)}% full'
-                        : 'Water tank: —',
+                        ? 'Nivel de agua del tanque: ${waterPercent!.toStringAsFixed(0)} %'
+                        : 'Nivel de agua del tanque: —',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -521,7 +521,7 @@ class _RabbitsSummaryBlock extends StatelessWidget {
                 subtitle: Text(
                   weights.containsKey(rabbit.id)
                       ? '${weights[rabbit.id]!.toStringAsFixed(2)} kg'
-                      : 'No weight reading yet',
+                      : 'Sin lectura de peso aún',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => onRabbitTap(rabbit.id, rabbit.name),
@@ -545,8 +545,8 @@ class _RabbitsSummaryBlock extends StatelessWidget {
     if (weights.isEmpty) {
       return Text(
         readingsEmpty
-            ? 'Add rabbits on the Rabbits tab, or wait for the first weight reading.'
-            : 'No weight readings yet. When a scale records a weight, rabbits appear here.',
+            ? 'Añada conejos en la pestaña Conejos, o espere la primera lectura de báscula.'
+            : 'Aún no hay pesos. Cuando la báscula registre un peso, aparecerán aquí.',
       );
     }
 
@@ -580,13 +580,13 @@ class _AlertsBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (readingsEmpty) {
-      return const Text('No alerts until sensors send data.');
+      return const Text('No hay alertas hasta que los sensores envíen datos.');
     }
     if (alerts.isEmpty) {
       return Card(
         child: ListTile(
           leading: Icon(Icons.check_circle_outline, color: Theme.of(context).colorScheme.primary),
-          title: const Text('No warnings right now.'),
+          title: const Text('Sin avisos por ahora.'),
         ),
       );
     }

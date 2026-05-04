@@ -124,6 +124,70 @@ class RabbitViewModel extends ChangeNotifier {
     }
   }
 
+  /// Update rabbit, refresh list on success. Prevents overlapping submits.
+  Future<bool> updateRabbit({
+    required int id,
+    required String name,
+    required String breed,
+    required String sex,
+    required String birthDate,
+    double? weight,
+    required String status,
+    String notes = '',
+  }) async {
+    if (_submitState is SubmitInProgress) return false;
+
+    _submitState = const SubmitInProgress();
+    notifyListeners();
+
+    try {
+      await _rabbitService.updateRabbit(
+        id: id,
+        name: name,
+        breed: breed,
+        sex: sex,
+        birthDate: birthDate,
+        weight: weight,
+        status: status,
+        notes: notes,
+      );
+      final list = await _rabbitService.fetchRabbits();
+      _hasLoadedSuccessfully = true;
+      _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
+      _listState = AsyncSuccess<List<Rabbit>>(list);
+      _submitState = const SubmitIdle();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _submitState = SubmitFailed(_formatError(e));
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Delete rabbit, refresh list on success. Prevents overlapping submits.
+  Future<bool> deleteRabbit(int id) async {
+    if (_submitState is SubmitInProgress) return false;
+
+    _submitState = const SubmitInProgress();
+    notifyListeners();
+
+    try {
+      await _rabbitService.deleteRabbit(id);
+      final list = await _rabbitService.fetchRabbits();
+      _hasLoadedSuccessfully = true;
+      _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
+      _listState = AsyncSuccess<List<Rabbit>>(list);
+      _submitState = const SubmitIdle();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _submitState = SubmitFailed(_formatError(e));
+      notifyListeners();
+      return false;
+    }
+  }
+
   void clearSubmitError() {
     if (_submitState is SubmitFailed) {
       _submitState = const SubmitIdle();
