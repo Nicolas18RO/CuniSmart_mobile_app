@@ -4,7 +4,7 @@ import '../core/errors/api_exception.dart';
 import '../core/network/api_client.dart';
 import '../models/rabbit.dart';
 
-/// Rabbit API: GET/POST `/api/rabbits/`. No UI, no app state.
+/// Rabbit API: GET/POST `/api/rabbits/`, PUT/PATCH/DELETE `/api/rabbits/{id}/`.
 class RabbitService {
   RabbitService(this._client);
 
@@ -64,6 +64,64 @@ class RabbitService {
       );
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
       return Rabbit.fromJson(decoded);
+    } on ApiException {
+      rethrow;
+    } catch (e, st) {
+      Error.throwWithStackTrace(
+        ApiException('Network or parse error: $e'),
+        st,
+      );
+    }
+  }
+
+  Future<Rabbit> updateRabbit({
+    required int id,
+    required String name,
+    required String breed,
+    required String sex,
+    required String birthDate,
+    double? weight,
+    required String status,
+    String notes = '',
+  }) async {
+    try {
+      final body = jsonEncode(<String, dynamic>{
+        'name': name,
+        'breed': breed,
+        'sex': sex,
+        'birth_date': birthDate,
+        'status': status,
+        'notes': notes,
+        if (weight != null) 'weight': weight,
+      });
+      final path = '$_path$id/';
+      final raw = await _client.put(
+        path,
+        body: body,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      );
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return Rabbit.fromJson(decoded);
+    } on ApiException {
+      rethrow;
+    } catch (e, st) {
+      Error.throwWithStackTrace(
+        ApiException('Network or parse error: $e'),
+        st,
+      );
+    }
+  }
+
+  Future<void> deleteRabbit(int id) async {
+    try {
+      final path = '$_path$id/';
+      await _client.delete(
+        path,
+        headers: {'Accept': 'application/json'},
+      );
     } on ApiException {
       rethrow;
     } catch (e, st) {
