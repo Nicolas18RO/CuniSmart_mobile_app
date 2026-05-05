@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/state/async_view_state.dart';
 import '../../models/rabbit.dart';
 import '../../models/sensor_reading.dart';
+import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../viewmodels/sensor_viewmodel.dart';
 
@@ -51,6 +52,11 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
       appBar: AppBar(
         title: const Text('CuniSmart - IoT'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => context.read<AuthViewModel>().logout(),
+            tooltip: 'Cerrar sesión',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed:

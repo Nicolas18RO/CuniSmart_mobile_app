@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/state/async_view_state.dart';
 import '../../core/state/submit_state.dart';
 import '../../models/rabbit.dart';
+import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import 'rabbit_create_route.dart';
 
@@ -41,6 +42,13 @@ class _RabbitListViewState extends State<RabbitListView> {
           ),
         ),
         actions: [
+          IconButton(
+            iconSize: 28,
+            constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
+            icon: const Icon(Icons.logout),
+            onPressed: () => context.read<AuthViewModel>().logout(),
+            tooltip: 'Cerrar sesión',
+          ),
           IconButton(
             iconSize: 28,
             constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
