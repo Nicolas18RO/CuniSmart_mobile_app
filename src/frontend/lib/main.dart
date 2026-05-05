@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/network/api_client.dart';
+import 'core/voice/app_voice_form_bridge.dart';
 import 'services/rabbit_service.dart';
 import 'services/sensor_service.dart';
 import 'services/voice_command_parser.dart';
@@ -11,7 +12,7 @@ import 'viewmodels/rabbit_viewmodel.dart';
 import 'viewmodels/sensor_viewmodel.dart';
 import 'viewmodels/voice_viewmodel.dart';
 import 'views/iot/iot_dashboard_view.dart';
-import 'views/rabbits/rabbit_create_view.dart';
+import 'views/rabbits/rabbit_create_route.dart';
 import 'views/rabbits/rabbit_list_view.dart';
 
 /// Used so [VoiceViewModel] can open routes without a [BuildContext] from a nested rebuild.
@@ -55,15 +56,19 @@ class CuniSmartApp extends StatelessWidget {
         ChangeNotifierProvider<SensorViewModel>(
           create: (_) => SensorViewModel(sensorService),
         ),
+        ChangeNotifierProvider<AppVoiceFormBridge>(
+          create: (_) => AppVoiceFormBridge(),
+        ),
         ChangeNotifierProvider<VoiceViewModel>(
           create: (ctx) => VoiceViewModel(
             ctx.read<VoiceService>(),
             ctx.read<VoiceCommandParser>(),
             ctx.read<RabbitViewModel>(),
             ctx.read<SensorViewModel>(),
+            ctx.read<AppVoiceFormBridge>(),
             onRequestOpenCreateRabbitScreen: () {
               appNavigatorKey.currentState?.push<bool>(
-                MaterialPageRoute(builder: (_) => const RabbitCreateView()),
+                MaterialPageRoute(builder: (_) => const RabbitCreateRoute()),
               );
             },
             onRequestPopToRoot: () {

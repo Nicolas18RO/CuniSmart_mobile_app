@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/state/submit_state.dart';
+import '../../core/voice/app_voice_form_bridge.dart';
 import '../../models/rabbit.dart';
+import '../../viewmodels/rabbit_create_form_voice_controller.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../viewmodels/voice_viewmodel.dart';
 
@@ -36,15 +38,6 @@ class RabbitCreateView extends StatefulWidget {
 
 class _RabbitCreateViewState extends State<RabbitCreateView> {
   final _formKey = GlobalKey<FormState>();
-
-  final _name = TextEditingController();
-  final _breed = TextEditingController();
-  final _birthDate = TextEditingController();
-  final _weight = TextEditingController();
-  final _notes = TextEditingController();
-
-  String _sex = 'male';
-  String _status = 'active';
 
   static const double _fieldGap = 20;
   static const EdgeInsets _fieldPadding =
@@ -111,34 +104,31 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
   @override
   void initState() {
     super.initState();
-    final r = widget.rabbit;
-    if (r != null) {
-      _name.text = r.name;
-      _breed.text = r.breed;
-      _sex = r.sex;
-      _birthDate.text = r.birthDate;
-      if (r.weight != null) {
-        _weight.text = r.weight.toString();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final form = context.read<RabbitCreateFormVoiceController>();
+      context.read<AppVoiceFormBridge>().registerRabbitCreate(form);
+      final r = widget.rabbit;
+      if (r != null) {
+        form.importFromRabbit(r);
       }
-      _status = r.status;
-      _notes.text = r.notes;
-    }
+    });
   }
 
   @override
   void dispose() {
-    _name.dispose();
-    _breed.dispose();
-    _birthDate.dispose();
-    _weight.dispose();
-    _notes.dispose();
+    final form = context.read<RabbitCreateFormVoiceController>();
+    context.read<AppVoiceFormBridge>().unregisterRabbitCreate(form);
     super.dispose();
   }
 
-  Future<void> _pickBirthDate(BuildContext context) async {
+  Future<void> _pickBirthDate(
+    BuildContext context,
+    RabbitCreateFormVoiceController form,
+  ) async {
     if (!mounted) return;
     final now = DateTime.now();
-    final parsed = _parseRabbitBirthDateYmd(_birthDate.text);
+    final parsed = _parseRabbitBirthDateYmd(form.birthDate.text);
     var initial = parsed ?? DateTime(now.year - 1, now.month, now.day);
     if (initial.isAfter(now)) initial = now;
     final first = DateTime(1900);
@@ -153,19 +143,17 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
       confirmText: 'Aceptar',
     );
     if (picked != null && mounted) {
-      setState(() {
-        _birthDate.text = _formatRabbitBirthDateYmd(picked);
-      });
+      form.setBirthDateText(_formatRabbitBirthDateYmd(picked));
     }
   }
 
-  Future<void> _submit(RabbitViewModel vm) async {
+  Future<void> _submit(RabbitViewModel vm, RabbitCreateFormVoiceController form) async {
     if (!_formKey.currentState!.validate()) return;
 
-    final weightText = _weight.text.trim();
+    final weightText = form.weight.text.trim();
     double? weight;
     if (weightText.isNotEmpty) {
-      weight = double.tryParse(weightText);
+      weight = double.tryParse(weightText.replaceAll(',', '.'));
       if (weight == null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -180,23 +168,23 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
     final editing = widget.rabbit;
     final ok = editing == null
         ? await vm.createRabbit(
-            name: _name.text.trim(),
-            breed: _breed.text.trim(),
-            sex: _sex,
-            birthDate: _birthDate.text.trim(),
+            name: form.name.text.trim(),
+            breed: form.breed.text.trim(),
+            sex: form.sex,
+            birthDate: form.birthDate.text.trim(),
             weight: weight,
-            status: _status,
-            notes: _notes.text.trim(),
+            status: form.status,
+            notes: form.notes.text.trim(),
           )
         : await vm.updateRabbit(
             id: editing.id,
-            name: _name.text.trim(),
-            breed: _breed.text.trim(),
-            sex: _sex,
-            birthDate: _birthDate.text.trim(),
+            name: form.name.text.trim(),
+            breed: form.breed.text.trim(),
+            sex: form.sex,
+            birthDate: form.birthDate.text.trim(),
             weight: weight,
-            status: _status,
-            notes: _notes.text.trim(),
+            status: form.status,
+            notes: form.notes.text.trim(),
           );
 
     if (!mounted) return;
@@ -208,6 +196,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<RabbitViewModel>();
+    final form = context.watch<RabbitCreateFormVoiceController>();
     final voice = context.watch<VoiceViewModel>();
     final voiceBanner = voice.isProcessing || voice.voice.isListening;
     final submitting = vm.isSubmitting;
@@ -265,7 +254,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                 ),
                 const SizedBox(height: 24),
                 TextFormField(
-                  controller: _name,
+                  controller: form.name,
                   enabled: !submitting,
                   style: _fieldTextStyle(context),
                   decoration: _decoration(context, 'Nombre *'),
@@ -275,7 +264,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(
-                  controller: _breed,
+                  controller: form.breed,
                   enabled: !submitting,
                   style: _fieldTextStyle(context),
                   decoration: _decoration(context, 'Raza *'),
@@ -284,7 +273,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                 ),
                 const SizedBox(height: _fieldGap),
                 DropdownButtonFormField<String>(
-                  value: _sex,
+                  value: form.sex,
                   decoration: _decoration(context, 'Sexo *'),
                   style: _fieldTextStyle(context),
                   items: const [
@@ -293,11 +282,11 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                   ],
                   onChanged: submitting
                       ? null
-                      : (v) => setState(() => _sex = v ?? 'male'),
+                      : (v) => form.setSex(v ?? 'male'),
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(
-                  controller: _birthDate,
+                  controller: form.birthDate,
                   readOnly: true,
                   enabled: !submitting,
                   style: _fieldTextStyle(context),
@@ -307,14 +296,14 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                     hint: 'Toca para elegir',
                     calendarSuffix: true,
                   ),
-                  onTap: submitting ? null : () => _pickBirthDate(context),
+                  onTap: submitting ? null : () => _pickBirthDate(context, form),
                   validator: (v) => v == null || v.trim().isEmpty
                       ? 'Elija la fecha de nacimiento'
                       : null,
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(
-                  controller: _weight,
+                  controller: form.weight,
                   enabled: !submitting,
                   style: _fieldTextStyle(context),
                   decoration: _decoration(
@@ -327,7 +316,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                 ),
                 const SizedBox(height: _fieldGap),
                 DropdownButtonFormField<String>(
-                  value: _status,
+                  value: form.status,
                   decoration: _decoration(context, 'Estado *'),
                   style: _fieldTextStyle(context),
                   items: const [
@@ -338,11 +327,11 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                   ],
                   onChanged: submitting
                       ? null
-                      : (v) => setState(() => _status = v ?? 'active'),
+                      : (v) => form.setStatus(v ?? 'active'),
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(
-                  controller: _notes,
+                  controller: form.notes,
                   enabled: !submitting,
                   style: _fieldTextStyle(context),
                   decoration: _decoration(
@@ -377,7 +366,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    onPressed: submitting ? null : () => _submit(vm),
+                    onPressed: submitting ? null : () => _submit(vm, form),
                     child: submitting
                         ? const SizedBox(
                             height: 24,

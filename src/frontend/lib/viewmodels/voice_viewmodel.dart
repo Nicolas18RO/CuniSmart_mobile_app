@@ -1,13 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../core/voice/app_voice_form_bridge.dart';
 import '../services/voice_command_parser.dart';
 import '../services/voice_commands.dart';
 import '../services/voice_service.dart';
 import '../voice/controller/voice_controller.dart';
+import '../voice/form/voice_form_field.dart';
+import '../voice/form/voice_form_field_assignment.dart';
 import 'rabbit_viewmodel.dart';
 import 'sensor_viewmodel.dart';
 
@@ -19,7 +23,8 @@ class VoiceViewModel extends ChangeNotifier {
     this._voice,
     VoiceCommandParser voiceCommandParser,
     this._rabbits,
-    this._sensors, {
+    this._sensors,
+    this._voiceFormBridge, {
     VoidCallback? onRequestOpenCreateRabbitScreen,
     VoidCallback? onRequestPopToRoot,
     void Function(int index)? onChangeTab,
@@ -40,6 +45,7 @@ class VoiceViewModel extends ChangeNotifier {
   final VoiceService _voice;
   final RabbitViewModel _rabbits;
   final SensorViewModel _sensors;
+  final AppVoiceFormBridge _voiceFormBridge;
   final VoidCallback? _onOpenCreate;
   final VoidCallback? _onPopToRoot;
   final void Function(int index)? _onChangeTab;
@@ -51,6 +57,44 @@ class VoiceViewModel extends ChangeNotifier {
   void updateCurrentTabIndex(int index) {
     if (index < 0 || index > 1) return;
     _currentTabIndex = index;
+  }
+
+  /// Limpia memoria de último comando TTS (p. ej. tras cerrar el flujo de alta por voz).
+  void resetVoiceFormState() {
+    lastRecognitionText = null;
+    _lastCommandTextKey = null;
+    _lastCommandTime = null;
+    _lastSpokenTextKey = null;
+    lastCommand = null;
+  }
+
+  /// Cierra rutas apiladas y fija la pestaña de lista de conejos (pantalla principal de conejos).
+  void deactivateFormMode() {
+    navigateToRabbitListScreen();
+  }
+
+  /// Raíz del navegador + pestaña conejos (lista principal).
+  Future<void> navigateToRabbitListScreen() async {
+    _onPopToRoot?.call();
+    _onChangeTab?.call(0);
+    updateCurrentTabIndex(0);
+    notifyListeners();
+  }
+
+  /// Resetea estado de voz y borrador del formulario en el bridge.
+  Future<void> hardResetVoiceState() async {
+    resetVoiceFormState();
+    _voiceFormBridge.hardReset();
+  }
+
+  /// Banderas del bridge (confirmación, etc.).
+  Future<void> clearVoiceFormBridge() async {
+    _voiceFormBridge.clear();
+  }
+
+  /// Deja el modo formulario a nivel de navegación (misma base que [navigateToRabbitListScreen]).
+  Future<void> deactivateVoiceFormMode() async {
+    await navigateToRabbitListScreen();
   }
 
   VoiceCommand? lastCommand;
@@ -67,6 +111,10 @@ class VoiceViewModel extends ChangeNotifier {
 
   VoiceService get voice => _voice;
 
+  VoiceFormMode get voiceFormMode => _voiceFormBridge.rabbitCreateRouteOpen
+      ? VoiceFormMode.active
+      : VoiceFormMode.inactive;
+
   bool _commandHandledThisSession = false;
 
   bool _silenceHandledThisSession = false;
@@ -74,6 +122,9 @@ class VoiceViewModel extends ChangeNotifier {
 
   String? _lastCommandTextKey;
   DateTime? _lastCommandTime;
+
+  int? _pendingDeleteRabbitId;
+  String? _pendingDeleteDisplayName;
 
   void _resetListenSessionFlags() {
     _commandHandledThisSession = false;
@@ -206,13 +257,13 @@ class VoiceViewModel extends ChangeNotifier {
     return DateTime.now().difference(lastAt) < const Duration(seconds: 2);
   }
 
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {bool allowRepeat = false}) async {
     final t = text.trim();
     if (t.isEmpty) {
       return;
     }
     final key = t.toLowerCase();
-    if (_lastSpokenTextKey == key) {
+    if (!allowRepeat && _lastSpokenTextKey == key) {
       return;
     }
     _lastSpokenTextKey = key;
@@ -221,6 +272,177 @@ class VoiceViewModel extends ChangeNotifier {
       notifyListeners();
     }
     await _voice.speak(t);
+  }
+
+  bool _isVoiceConfirmPhrase(String trimmedLower) {
+    const phrases = {
+      'confirmar',
+      'confirma',
+      'confirmo',
+      'si',
+      'sí',
+      'de acuerdo',
+      'ok',
+      'vale',
+    };
+    final s = trimmedLower.trim();
+    return phrases.contains(s);
+  }
+
+  bool _isVoiceCancelPhrase(String trimmedLower) {
+    const phrases = {
+      'cancelar',
+      'cancela',
+      'no',
+      'abortar',
+      'mejor no',
+    };
+    final s = trimmedLower.trim();
+    return phrases.contains(s);
+  }
+
+  void _clearPendingDelete() {
+    _pendingDeleteRabbitId = null;
+    _pendingDeleteDisplayName = null;
+  }
+
+  Future<void> _handlePendingDeleteConfirm() async {
+    if (_pendingDeleteRabbitId == null) return;
+    if (_isProcessingCommand) return;
+    _isProcessingCommand = true;
+    notifyListeners();
+    try {
+      final id = _pendingDeleteRabbitId!;
+      final name = _pendingDeleteDisplayName ?? '';
+      _clearPendingDelete();
+      final ok = await _rabbits.deleteRabbit(id);
+      await speak(
+        ok
+            ? 'Listo, eliminé a $name.'
+            : 'No pude eliminar al conejo. Intenta de nuevo.',
+      );
+      lastCommand = VoiceCommand.deleteRabbitRequest;
+    } finally {
+      _isProcessingCommand = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _handlePendingDeleteCancel() async {
+    if (_pendingDeleteRabbitId == null) return;
+    if (_isProcessingCommand) return;
+    _isProcessingCommand = true;
+    notifyListeners();
+    try {
+      _clearPendingDelete();
+      await speak('Eliminación cancelada.');
+      lastCommand = null;
+    } finally {
+      _isProcessingCommand = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _applySingleFillGuidance(List<VoiceFormFieldAssignment> fills) async {
+    final g = _voiceFormBridge.applyRabbitCreateAssignmentsWithGuidance(fills);
+    if (g != null && g.trim().isNotEmpty) {
+      await speak(g);
+    }
+  }
+
+  Future<void> _afterBurstVoiceFormApply() async {
+    final speech = _voiceFormBridge.takeFinalReviewAndArmIfReady();
+    if (speech != null && speech.trim().isNotEmpty) {
+      await speak(speech);
+    }
+  }
+
+  bool _isRabbitFormFinalConfirm(String trimmedLower) {
+    const phrases = {
+      'confirmar',
+      'confirma',
+      'confirmo',
+      'si',
+      'sí',
+      'crear',
+      'ok',
+      'vale',
+      'de acuerdo',
+    };
+    return phrases.contains(trimmedLower.trim());
+  }
+
+  bool _isRabbitFormFinalCancel(String trimmedLower) {
+    const phrases = {
+      'cancelar',
+      'cancela',
+      'no',
+      'abortar',
+      'mejor no',
+    };
+    return phrases.contains(trimmedLower.trim());
+  }
+
+  Future<void> _handleRabbitCreateFinalVoice(String lower) async {
+    if (!_voiceFormBridge.isAwaitingFinalConfirmation) return;
+
+    if (_isRabbitFormFinalConfirm(lower)) {
+      final form = _voiceFormBridge.rabbitFormController;
+      if (form == null || !form.readyForFinalVoiceConfirmation) {
+        _voiceFormBridge.clearAwaitingFinalConfirmation();
+        await speak('El formulario ya no está listo. Completa los datos de nuevo.');
+        return;
+      }
+
+      _rabbits.clearSubmitError();
+
+      final weightText = form.weight.text.trim();
+      double? weight;
+      if (weightText.isNotEmpty) {
+        weight = double.tryParse(weightText.replaceAll(',', '.'));
+      }
+
+      final ok = await _rabbits.createRabbit(
+        name: form.name.text.trim(),
+        breed: form.breed.text.trim(),
+        sex: form.sex,
+        birthDate: form.birthDate.text.trim(),
+        weight: weight,
+        status: form.status,
+        notes: form.notes.text.trim(),
+      );
+
+      if (ok) {
+        await _afterSuccessfulVoiceCreate();
+      } else {
+        await speak(
+          'No pude crear el conejo. Revisa los datos o inténtalo otra vez. '
+          'Di confirmar cuando esté corregido, o cancelar.',
+          allowRepeat: true,
+        );
+      }
+      return;
+    }
+
+    if (_isRabbitFormFinalCancel(lower)) {
+      _voiceFormBridge.clearAwaitingFinalConfirmation();
+      await speak('Creación cancelada.');
+      lastCommand = null;
+      return;
+    }
+
+    await speak(
+      'No entendí. Di confirmar o cancelar.',
+      allowRepeat: true,
+    );
+  }
+
+  Future<void> _afterSuccessfulVoiceCreate() async {
+    await hardResetVoiceState();
+    await navigateToRabbitListScreen();
+    await Future<void>.delayed(Duration.zero);
+    await clearVoiceFormBridge();
+    await speak('Conejo creado correctamente.');
   }
 
   Future<void> _applyVoiceEffects(List<VoiceEffect> effects) async {
@@ -243,9 +465,41 @@ class VoiceViewModel extends ChangeNotifier {
           _sensors.startPolling();
           break;
         case VoiceEffectType.openCreateRabbitScreen:
-          _onOpenCreate?.call();
+          final open = _onOpenCreate;
+          if (open != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => open());
+          }
           break;
       }
+    }
+  }
+
+  Future<void> _applyRabbitVoiceCrud(VoiceOrchestrationResult plan) async {
+    if (plan.pendingDelete != null) {
+      _pendingDeleteRabbitId = plan.pendingDelete!.rabbitId;
+      _pendingDeleteDisplayName = plan.pendingDelete!.displayName;
+      notifyListeners();
+      return;
+    }
+
+    final u = plan.updateByVoice;
+    if (u != null) {
+      final s = u.snapshot;
+      final ok = await _rabbits.updateRabbit(
+        id: s.id,
+        name: s.name,
+        breed: s.breed,
+        sex: s.sex,
+        birthDate: s.birthDate,
+        weight: u.newWeight,
+        status: s.status,
+        notes: s.notes,
+      );
+      await speak(
+        ok
+            ? 'Listo, actualicé el peso de ${s.name}.'
+            : 'No pude actualizar al conejo.',
+      );
     }
   }
 
@@ -253,6 +507,35 @@ class VoiceViewModel extends ChangeNotifier {
   Future<void> handleVoiceInput(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
+      return;
+    }
+
+    final lower = trimmed.toLowerCase();
+
+    if (_pendingDeleteRabbitId != null) {
+      if (_isVoiceConfirmPhrase(lower)) {
+        await _handlePendingDeleteConfirm();
+        return;
+      }
+      if (_isVoiceCancelPhrase(lower)) {
+        await _handlePendingDeleteCancel();
+        return;
+      }
+    }
+
+    if (_voiceFormBridge.isAwaitingFinalConfirmation) {
+      if (_isProcessingCommand) {
+        return;
+      }
+      _isProcessingCommand = true;
+      notifyListeners();
+      try {
+        lastRecognitionText = text;
+        await _handleRabbitCreateFinalVoice(lower);
+      } finally {
+        _isProcessingCommand = false;
+        notifyListeners();
+      }
       return;
     }
 
@@ -271,8 +554,16 @@ class VoiceViewModel extends ChangeNotifier {
       final plan = _voiceController.prepare(
         trimmed,
         shellTabIndex: _currentTabIndex,
+        rabbitFormSnapshot: _voiceFormBridge.readRabbitCreateSnapshot(),
       );
       lastCommand = _voiceController.lastParsedCommand;
+
+      if (_pendingDeleteRabbitId != null &&
+          lastCommand != null &&
+          lastCommand != VoiceCommand.deleteRabbitRequest) {
+        _clearPendingDelete();
+      }
+
       notifyListeners();
 
       await _applyVoiceEffects(plan.effects);
@@ -289,6 +580,22 @@ class VoiceViewModel extends ChangeNotifier {
       if (toSpeak != null && toSpeak.trim().isNotEmpty) {
         await speak(toSpeak);
       }
+
+      final fills = plan.rabbitCreateFormFills;
+      if (fills != null && fills.isNotEmpty) {
+        if (fills.length > 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _voiceFormBridge.applyRabbitCreateAssignments(fills);
+            unawaited(_afterBurstVoiceFormApply());
+          });
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            unawaited(_applySingleFillGuidance(fills));
+          });
+        }
+      }
+
+      await _applyRabbitVoiceCrud(plan);
 
       if (!kReleaseMode) {
         debugPrint('VoiceVM: handleVoiceInput cmd=$lastCommand');

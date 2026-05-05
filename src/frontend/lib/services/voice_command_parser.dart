@@ -64,6 +64,11 @@ class VoiceCommandParser {
 
     final words = _wordSet(n);
 
+    // --- Ver ficha (prioridad máxima; antes de peso / lista / CRUD) ---
+    if (_tryExtractViewRabbitInfoName(n) != null) {
+      return VoiceCommand.viewRabbitInfo;
+    }
+
     // --- Count (keep) ---
     if (_anyWord(words, _countWords) && words.contains('conejos')) {
       return VoiceCommand.getRabbitCount;
@@ -101,9 +106,15 @@ class VoiceCommandParser {
       return VoiceCommand.listRabbits;
     }
 
-    // --- Create rabbit (keep) ---
-    if (_anyWord(words, _createVerbs) && _anyWord(words, _rabbitNouns)) {
-      return VoiceCommand.createRabbit;
+    // --- CRUD por voz ---
+    if (_isCreateRabbitVoiceFormIntent(n, words)) {
+      return VoiceCommand.createRabbitVoiceForm;
+    }
+    if (_isDeleteRabbitIntent(n, words)) {
+      return VoiceCommand.deleteRabbitRequest;
+    }
+    if (_isUpdateRabbitIntent(n, words)) {
+      return VoiceCommand.updateRabbitVoice;
     }
 
     // --- Sensors / dashboard (keep) ---
@@ -122,12 +133,224 @@ class VoiceCommandParser {
     return null;
   }
 
-  static const _createVerbs = {'crear', 'registrar', 'agregar'};
   static const _rabbitNouns = {'conejo', 'conejos'};
   static const _listVerbs = {'ver', 'mostrar', 'listar'};
   static const _sensorKeywords = {'sensor', 'sensores', 'temperatura', 'agua'};
   static const _dashboardKeywords = {'dashboard', 'panel'};
   static const _countWords = {'cuantos', 'cuántos'};
+  static const _deleteVerbs = {'eliminar', 'borrar', 'quitar'};
+  static const _updateVerbs = {'editar', 'actualizar', 'modificar'};
+
+  static final _weightAfterPeso = RegExp(
+    r'\bpeso\s+([\d]+(?:[.,][\d]+)?)\b',
+    unicode: true,
+  );
+  static final _breedAfterRaza = RegExp(
+    r'\braza\s+([\p{L}\p{N}]+)',
+    unicode: true,
+  );
+
+  bool _isDeleteRabbitIntent(String n, Set<String> words) {
+    if (!_anyWord(words, _deleteVerbs)) return false;
+    if (!words.contains('conejo') && !n.contains('conejo ')) return false;
+    return extractDeleteRabbitNameQuery(n) != null;
+  }
+
+  bool _isUpdateRabbitIntent(String n, Set<String> words) {
+    if (!_anyWord(words, _updateVerbs)) return false;
+    if (!words.contains('conejo') && !n.contains('conejo ')) return false;
+    return extractUpdateRabbitNameQuery(n) != null;
+  }
+
+  bool _isCreateRabbitVoiceFormIntent(String n, Set<String> words) {
+    if (_blocksCreateRabbitForm(n)) return false;
+    if (!RegExp(r'\b(?:crear|registrar|agregar)\b').hasMatch(n)) return false;
+    return words.contains('conejo') || words.contains('conejos');
+  }
+
+  /// Consultas de ficha / lista verbal que no deben clasificarse como alta.
+  bool _blocksCreateRabbitForm(String n) {
+    if (_tryExtractViewRabbitInfoName(n) != null) return true;
+    if (RegExp(r'\binformaci[oó]n\b').hasMatch(n)) return true;
+    if (RegExp(r'\bdatos\b').hasMatch(n)) return true;
+    return false;
+  }
+
+  /// Patrones: `información (de)? NAME`, `datos (de)? NAME`, `ver conejo NAME`, `ver NAME`.
+  String? extractViewRabbitInfoNameQuery(String recognizedText) {
+    return _tryExtractViewRabbitInfoName(_normalize(recognizedText));
+  }
+
+  static const _verDirectExcludeFirst = {
+    'conejos',
+    'conejo',
+    'los',
+    'las',
+    'el',
+    'la',
+    'pesos',
+    'peso',
+    'sensores',
+    'sensor',
+    'dashboard',
+    'panel',
+    'ultimos',
+    'últimos',
+    'mis',
+    'lista',
+    'eventos',
+    'datos',
+    'informacion',
+    'información',
+    'mostrar',
+    'listar',
+    'temperatura',
+    'agua',
+    'nivel',
+    'humedad',
+  };
+
+  String? _trimInfoNameTail(String tail) {
+    var t = tail.trim();
+    if (t.isEmpty) return null;
+    for (final kw in [' raza ', ' peso ', ' notas', ' macho', ' hembra']) {
+      final i = t.indexOf(kw);
+      if (i >= 0) t = t.substring(0, i).trim();
+    }
+    return t.isEmpty ? null : t;
+  }
+
+  String? _tryExtractViewRabbitInfoName(String n) {
+    // 1) información (del | de)? NAME  —  también «información lucas» sin «de».
+    final info = RegExp(
+      r'\binformaci[oó]n\s+(?:(?:del|de)\s+)?(.+)$',
+      unicode: true,
+    ).firstMatch(n);
+    if (info != null) {
+      final name = _trimInfoNameTail(info.group(1) ?? '');
+      if (name != null) return name;
+    }
+
+    // 2) datos (del | de)? NAME
+    final datos = RegExp(
+      r'\bdatos\s+(?:(?:del|de)\s+)?(.+)$',
+      unicode: true,
+    ).firstMatch(n);
+    if (datos != null) {
+      final raw = (datos.group(1) ?? '').trim().toLowerCase();
+      if (!raw.startsWith('sensor') &&
+          !raw.startsWith('sensores') &&
+          !raw.startsWith('del sensor')) {
+        final name = _trimInfoNameTail(datos.group(1) ?? '');
+        if (name != null) return name;
+      }
+    }
+
+    // 3) ver conejo NAME
+    final verConejo = RegExp(
+      r'\bver\s+conejo\s+(.+)$',
+      unicode: true,
+    ).firstMatch(n);
+    if (verConejo != null) {
+      final name = _trimInfoNameTail(verConejo.group(1) ?? '');
+      if (name != null) return name;
+    }
+
+    // 4) ver NAME (no «ver conejos», «ver pesos», etc.)
+    final verDirect = RegExp(r'^ver\s+(.+)$', unicode: true).firstMatch(n);
+    if (verDirect != null) {
+      var tail = (verDirect.group(1) ?? '').trim();
+      if (tail.isEmpty) return null;
+      final firstTok = tail.split(RegExp(r'\s+')).first.toLowerCase();
+      if (!_verDirectExcludeFirst.contains(firstTok)) {
+        return _trimInfoNameTail(tail);
+      }
+    }
+
+    return null;
+  }
+
+  /// Texto tras «crear|registrar|agregar … conejo» (puede ser vacío).
+  String extractCreateRabbitVoiceFormRemainder(String recognizedText) {
+    final n = _normalize(recognizedText);
+    final m = RegExp(
+      r'^(?:crear|registrar|agregar)\s+(?:el\s+)?(?:conejo|conejos)\s*(.*)$',
+    ).firstMatch(n);
+    if (m == null) return '';
+    return (m.group(1) ?? '').trim();
+  }
+
+  /// Nombre objetivo tras "eliminar|borrar|quitar ... conejo".
+  String? extractDeleteRabbitNameQuery(String recognizedText) {
+    return _extractNameAfterConejoVerb(
+      recognizedText,
+      RegExp(
+        r'\b(?:eliminar|borrar|quitar)\s+(?:el\s+)?conejo\s+(.+)$',
+        unicode: true,
+      ),
+    );
+  }
+
+  /// Nombre objetivo tras "editar|actualizar|modificar ... conejo".
+  String? extractUpdateRabbitNameQuery(String recognizedText) {
+    return _extractNameAfterConejoVerb(
+      recognizedText,
+      RegExp(
+        r'\b(?:editar|actualizar|modificar)\s+(?:el\s+)?conejo\s+(.+)$',
+        unicode: true,
+      ),
+    );
+  }
+
+  /// Peso opcional en frases de actualización ("... peso 3,5").
+  double? extractVoiceWeightAfterPeso(String recognizedText) {
+    final n = _normalize(recognizedText);
+    final m = _weightAfterPeso.firstMatch(n);
+    if (m == null) return null;
+    final raw = (m.group(1) ?? '').replaceAll(',', '.');
+    return double.tryParse(raw);
+  }
+
+  /// Raza opcional en "crear conejo X raza California".
+  String? extractCreateRabbitBreed(String recognizedText) {
+    final n = _normalize(recognizedText);
+    final m = _breedAfterRaza.firstMatch(n);
+    if (m == null) return null;
+    return m.group(1)?.trim();
+  }
+
+  /// `male` / `female` para API.
+  String? extractCreateRabbitSex(String recognizedText) {
+    final n = _normalize(recognizedText);
+    if (n.contains(' hembra')) return 'female';
+    if (n.contains(' macho')) return 'male';
+    return null;
+  }
+
+  /// Nombre (puede ser varias palabras) tras "crear|registrar|agregar ... conejo".
+  String? extractCreateRabbitVoiceName(String recognizedText) {
+    return _extractNameAfterConejoVerb(
+      recognizedText,
+      RegExp(
+        r'\b(?:crear|registrar|agregar)\s+(?:el\s+)?conejo\s+(.+)$',
+        unicode: true,
+      ),
+    );
+  }
+
+  String? _extractNameAfterConejoVerb(String recognizedText, RegExp re) {
+    final n = _normalize(recognizedText);
+    final m = re.firstMatch(n);
+    if (m == null) return null;
+    var tail = (m.group(1) ?? '').trim();
+    if (tail.isEmpty) return null;
+    for (final kw in [' raza ', ' peso ', ' macho', ' hembra']) {
+      final i = tail.indexOf(kw);
+      if (i >= 0) tail = tail.substring(0, i).trim();
+    }
+    if (tail.isEmpty) return null;
+    return tail;
+  }
 
   /// Extracts a rabbit name token for [VoiceCommand.weightByName].
   String? extractRabbitName(String recognizedText) {

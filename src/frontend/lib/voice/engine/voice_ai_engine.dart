@@ -48,9 +48,6 @@ final class LatestWeightsIntent extends VoiceIntent {
   final int? requestedLimit;
 }
 
-final class CreateRabbitIntent extends VoiceIntent {
-  CreateRabbitIntent();
-}
 
 final class ListRabbitsDetailedIntent extends VoiceIntent {
   ListRabbitsDetailedIntent();
@@ -74,12 +71,64 @@ final class GetRabbitWeightHistoryIntent extends VoiceIntent {
   final int rabbitId;
 }
 
+final class DeleteRabbitRequestIntent extends VoiceIntent {
+  DeleteRabbitRequestIntent(this.nameQuery);
+  final String nameQuery;
+}
+
+/// Crear conejo por voz: abre formulario; [remainderAfterPrefix] es el texto tras «crear conejo».
+final class CreateRabbitVoiceFormIntent extends VoiceIntent {
+  CreateRabbitVoiceFormIntent(this.remainderAfterPrefix);
+  final String remainderAfterPrefix;
+}
+
+/// Ver ficha resumida por voz (nombre coloquial o varias palabras).
+final class ViewRabbitInfoIntent extends VoiceIntent {
+  ViewRabbitInfoIntent(this.nameQuery);
+  final String nameQuery;
+}
+
+final class UpdateRabbitVoiceIntent extends VoiceIntent {
+  UpdateRabbitVoiceIntent(this.nameQuery, {this.newWeight});
+  final String nameQuery;
+  final double? newWeight;
+}
+
 /// Capa de decisión de voz: sin [BuildContext], sin red, sin ejecutar navegación.
 class VoiceAIEngine {
   VoiceAIEngine(this._rabbits, this._sensors);
 
   final RabbitViewModel _rabbits;
   final SensorViewModel _sensors;
+
+  /// Resumen oral del borrador antes de confirmar (solo texto; sin red ni API).
+  static String formatRabbitCreateFormFinalSummary({
+    required String name,
+    required String breed,
+    required String sexApi,
+    required String birthDateYmd,
+    required String statusApi,
+    String? weightDisplay,
+    String? notesPreview,
+  }) {
+    final sexEs = sexApi == 'female' ? 'hembra' : 'macho';
+    final statusEs = switch (statusApi) {
+      'sold' => 'vendido',
+      'deceased' => 'fallecido',
+      _ => 'activo',
+    };
+    final peso = (weightDisplay == null || weightDisplay.isEmpty)
+        ? 'sin peso indicado'
+        : '$weightDisplay kilogramos';
+    final notas = (notesPreview == null || notesPreview.isEmpty)
+        ? 'sin notas'
+        : 'notas: $notesPreview';
+    return 'Vas a crear el conejo $name, raza $breed, sexo $sexEs, nacido el '
+        '$birthDateYmd, estado $statusEs, peso $peso, $notas.';
+  }
+
+  static String rabbitCreateFormConfirmationPrompt() =>
+      '¿Confirmas la creación de este conejo? Di confirmar o cancelar.';
 
   VoiceAIResponse resolve(VoiceIntent intent) {
     return switch (intent) {
@@ -90,9 +139,6 @@ class VoiceAIEngine {
       ListRabbitsIntent() => _listRabbitsSimplified(),
       LatestWeightsIntent(:final requestedLimit) =>
         _latestWeights(requestedLimit),
-      CreateRabbitIntent() => const VoiceAIResponse(
-          textToSpeak: 'Perfecto, vamos a crear un nuevo conejo',
-        ),
       ListRabbitsDetailedIntent() => _listRabbitsDetailed(),
       OpenDashboardIntent() => const VoiceAIResponse(
           textToSpeak: 'Aquí tienes el panel de sensores',
@@ -101,7 +147,72 @@ class VoiceAIEngine {
       GetRabbitCountIntent() => _rabbitCountSpeech(),
       GetRabbitWeightHistoryIntent(:final rabbitId) =>
         _rabbitWeightHistorySpeech(rabbitId),
+      DeleteRabbitRequestIntent(:final nameQuery) =>
+        VoiceAIResponse(textToSpeak: _deleteRequestSpeech(nameQuery)),
+      CreateRabbitVoiceFormIntent(:final remainderAfterPrefix) =>
+        VoiceAIResponse(
+          textToSpeak: remainderAfterPrefix.isEmpty
+              ? 'Dime el nombre del conejo'
+              : '',
+        ),
+      UpdateRabbitVoiceIntent(:final nameQuery, :final newWeight) =>
+        VoiceAIResponse(
+          textToSpeak: _updateRabbitVoiceSpeech(nameQuery, newWeight),
+        ),
+      ViewRabbitInfoIntent(:final nameQuery) => VoiceAIResponse(
+          textToSpeak: _rabbitInfoSpeech(nameQuery),
+        ),
     };
+  }
+
+  /// Coincidencia por nombre para CRUD por voz (solo lectura de lista en memoria).
+  Rabbit? rabbitMatchingVoiceName(String nameQuery) =>
+      _matchRabbitByName(nameQuery);
+
+  String _deleteRequestSpeech(String nameQuery) {
+    final r = _matchRabbitByName(nameQuery);
+    if (r == null) {
+      return 'No encontré un conejo con ese nombre para eliminar.';
+    }
+    return '¿Estás seguro de eliminar a ${r.name}? Di confirmar o cancelar.';
+  }
+
+  String _rabbitInfoSpeech(String nameQuery) {
+    final r = _matchRabbitByName(nameQuery);
+    if (r == null) {
+      return 'No encontré un conejo con ese nombre.';
+    }
+    final sexEs = r.sex == 'female' ? 'hembra' : 'macho';
+    final statusEs = switch (r.status) {
+      'sold' => 'vendido',
+      'deceased' => 'fallecido',
+      _ => 'activo',
+    };
+    final buf = StringBuffer(
+      '${r.name}. Raza ${r.breed}. Sexo $sexEs. Nacido el ${r.birthDate}. '
+      'Estado $statusEs.',
+    );
+    if (r.weight != null) {
+      buf.write(
+        ' Peso registrado ${VoiceSpeechFormat.kgComma(r.weight!)} kilogramos.',
+      );
+    }
+    if (r.notes.trim().isNotEmpty) {
+      buf.write(' Notas: ${r.notes.trim()}.');
+    }
+    return buf.toString();
+  }
+
+  String _updateRabbitVoiceSpeech(String nameQuery, double? newWeight) {
+    final r = _matchRabbitByName(nameQuery);
+    if (r == null) {
+      return 'No encontré un conejo con ese nombre para editar.';
+    }
+    if (newWeight == null) {
+      return 'Para cambiar el peso de ${r.name}, di por ejemplo: editar conejo '
+          '${r.name} peso tres coma cinco.';
+    }
+    return 'Actualizo el peso de ${r.name} a ${VoiceSpeechFormat.kgComma(newWeight)} kilogramos.';
   }
 
   List<Rabbit> _rabbitsSnapshot() {

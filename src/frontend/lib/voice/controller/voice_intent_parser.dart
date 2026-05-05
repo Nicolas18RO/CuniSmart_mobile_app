@@ -49,6 +49,16 @@ class VoiceIntentParser {
     if (trimmed.isEmpty) {
       return VoicePipelineUnknown();
     }
+
+    // Prioridad 1: consulta de ficha (antes que peso, alta, etc.).
+    final viewName = _commandParser.extractViewRabbitInfoNameQuery(trimmed);
+    if (viewName != null && viewName.trim().isNotEmpty) {
+      return VoicePipelineOk(
+        intent: ViewRabbitInfoIntent(viewName.trim()),
+        command: VoiceCommand.viewRabbitInfo,
+      );
+    }
+
     final cmd = _commandParser.parse(trimmed);
     if (cmd == null) {
       return VoicePipelineUnknown();
@@ -85,8 +95,6 @@ class VoiceIntentParser {
           return _SlotParseBad('No entendí el número del conejo');
         }
         return _SlotParseOk(GetRabbitWeightHistoryIntent(id));
-      case VoiceCommand.createRabbit:
-        return _SlotParseOk(CreateRabbitIntent());
       case VoiceCommand.listRabbitsDetailed:
         return _SlotParseOk(ListRabbitsDetailedIntent());
       case VoiceCommand.openDashboard:
@@ -99,6 +107,31 @@ class VoiceIntentParser {
         );
       case VoiceCommand.getRabbitCount:
         return _SlotParseOk(GetRabbitCountIntent());
+      case VoiceCommand.deleteRabbitRequest:
+        final q = _commandParser.extractDeleteRabbitNameQuery(recognizedText);
+        if (q == null) {
+          return _SlotParseBad('Di el nombre del conejo que quieres eliminar.');
+        }
+        return _SlotParseOk(DeleteRabbitRequestIntent(q));
+      case VoiceCommand.updateRabbitVoice:
+        final q = _commandParser.extractUpdateRabbitNameQuery(recognizedText);
+        if (q == null) {
+          return _SlotParseBad('Di el nombre del conejo que quieres editar.');
+        }
+        final w = _commandParser.extractVoiceWeightAfterPeso(recognizedText);
+        return _SlotParseOk(UpdateRabbitVoiceIntent(q, newWeight: w));
+      case VoiceCommand.viewRabbitInfo:
+        final q = _commandParser.extractViewRabbitInfoNameQuery(recognizedText);
+        if (q == null) {
+          return _SlotParseBad(
+            'Di por ejemplo: información de, y el nombre del conejo.',
+          );
+        }
+        return _SlotParseOk(ViewRabbitInfoIntent(q));
+      case VoiceCommand.createRabbitVoiceForm:
+        final rem =
+            _commandParser.extractCreateRabbitVoiceFormRemainder(recognizedText);
+        return _SlotParseOk(CreateRabbitVoiceFormIntent(rem));
     }
   }
 }

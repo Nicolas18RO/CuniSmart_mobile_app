@@ -9,7 +9,8 @@ enum VoiceSensorLexicalKind {
 ///
 /// Values map 1:1 to supported utterances in [VoiceCommandParser]; no UI wiring yet.
 enum VoiceCommand {
-  createRabbit,
+  /// Abre crear conejo + relleno por voz (opcionalmente toda la frase en una ráfaga).
+  createRabbitVoiceForm,
   listRabbits,
   listRabbitsDetailed,
   openDashboard,
@@ -19,4 +20,10 @@ enum VoiceCommand {
   getLatestWeightEvents,
   getRabbitWeightHistory,
   weightByName,
+  /// Pedir eliminación (requiere confirmación por voz en el ViewModel).
+  deleteRabbitRequest,
+  /// Actualizar conejo (p. ej. peso) por nombre.
+  updateRabbitVoice,
+  /// Ver datos de un conejo por nombre («información de X», «ver conejo X», «datos de X»).
+  viewRabbitInfo,
 }
