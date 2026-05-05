@@ -7,18 +7,17 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../services/voice_command_parser.dart';
 import '../services/voice_commands.dart';
 import '../services/voice_service.dart';
+import '../voice/controller/voice_controller.dart';
 import 'rabbit_viewmodel.dart';
 import 'sensor_viewmodel.dart';
 
-enum _SensorVoiceSubIntent { temperature, water, general }
-
-/// Bridges [VoiceService] + [VoiceCommandParser] to [RabbitViewModel] / [SensorViewModel].
+/// Orquestador liviano: STT/TTS + [VoiceController] + efectos de shell (sin reglas de dominio).
 ///
-/// Push-to-talk: one listening session per mic activation; no automatic re-listening.
+/// Push-to-talk: una sesión de escucha por activación del micrófono.
 class VoiceViewModel extends ChangeNotifier {
   VoiceViewModel(
     this._voice,
-    this._parser,
+    VoiceCommandParser voiceCommandParser,
     this._rabbits,
     this._sensors, {
     VoidCallback? onRequestOpenCreateRabbitScreen,
@@ -29,11 +28,16 @@ class VoiceViewModel extends ChangeNotifier {
         _onPopToRoot = onRequestPopToRoot,
         _onChangeTab = onChangeTab,
         _currentTabIndex = currentTabIndex {
+    _voiceController = VoiceController(
+      intentParser: VoiceIntentParser(voiceCommandParser),
+      aiEngine: VoiceAIEngine(_rabbits, _sensors),
+    );
     _voice.onSpeechStatus = _onEngineSpeechStatus;
   }
 
+  late final VoiceController _voiceController;
+
   final VoiceService _voice;
-  final VoiceCommandParser _parser;
   final RabbitViewModel _rabbits;
   final SensorViewModel _sensors;
   final VoidCallback? _onOpenCreate;
@@ -55,21 +59,21 @@ class VoiceViewModel extends ChangeNotifier {
   bool _isProcessingCommand = false;
   bool _hasVoiceError = false;
 
-  /// True while a parsed command is running (including TTS from commands).
   bool get isProcessing => _isProcessingCommand;
 
-  /// True if the last [startListenSession] could not initialize STT.
   bool get hasError => _hasVoiceError;
 
-  /// Alias for UI: STT session active.
   bool get isVoiceModeEnabled => _voice.isListening;
 
   VoiceService get voice => _voice;
 
-  /// One voice command (or silence feedback) per listen session.
   bool _commandHandledThisSession = false;
 
   bool _silenceHandledThisSession = false;
+  String? _lastSpokenTextKey;
+
+  String? _lastCommandTextKey;
+  DateTime? _lastCommandTime;
 
   void _resetListenSessionFlags() {
     _commandHandledThisSession = false;
@@ -93,7 +97,6 @@ class VoiceViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Mic on: start one STT session. Mic off: [finalizeListeningSession].
   Future<void> toggleMicrophone() async {
     if (_voice.isListening) {
       await finalizeListeningSession();
@@ -124,7 +127,6 @@ class VoiceViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// User stopped listening early or session ended; apply last text if needed.
   Future<void> finalizeListeningSession() async {
     if (!_voice.isListening) {
       return;
@@ -188,9 +190,6 @@ class VoiceViewModel extends ChangeNotifier {
     await finalizeListeningSession();
   }
 
-  String? _lastCommandTextKey;
-  DateTime? _lastCommandTime;
-
   bool _shouldIgnoreDuplicateCommandText(String rawText) {
     final key = rawText.trim().toLowerCase();
     if (key.isEmpty) {
@@ -212,6 +211,11 @@ class VoiceViewModel extends ChangeNotifier {
     if (t.isEmpty) {
       return;
     }
+    final key = t.toLowerCase();
+    if (_lastSpokenTextKey == key) {
+      return;
+    }
+    _lastSpokenTextKey = key;
     if (_voice.isListening) {
       await _voice.stopListening();
       notifyListeners();
@@ -219,7 +223,34 @@ class VoiceViewModel extends ChangeNotifier {
     await _voice.speak(t);
   }
 
-  Future<void> applyCommandFromText(String text) async {
+  Future<void> _applyVoiceEffects(List<VoiceEffect> effects) async {
+    for (final e in effects) {
+      switch (e.type) {
+        case VoiceEffectType.popToRoot:
+          _onPopToRoot?.call();
+          break;
+        case VoiceEffectType.changeTab:
+          final i = e.tabIndex;
+          if (i != null) _onChangeTab?.call(i);
+          break;
+        case VoiceEffectType.loadRabbits:
+          await _rabbits.loadRabbits();
+          break;
+        case VoiceEffectType.loadSensorReadings:
+          await _sensors.loadSensorReadings();
+          break;
+        case VoiceEffectType.startSensorPolling:
+          _sensors.startPolling();
+          break;
+        case VoiceEffectType.openCreateRabbitScreen:
+          _onOpenCreate?.call();
+          break;
+      }
+    }
+  }
+
+  /// Flujo: texto STT → [VoiceController] → efectos → TTS.
+  Future<void> handleVoiceInput(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
       return;
@@ -237,23 +268,30 @@ class VoiceViewModel extends ChangeNotifier {
 
     try {
       lastRecognitionText = text;
-      final cmd = _parser.parse(text);
-      lastCommand = cmd;
+      final plan = _voiceController.prepare(
+        trimmed,
+        shellTabIndex: _currentTabIndex,
+      );
+      lastCommand = _voiceController.lastParsedCommand;
       notifyListeners();
 
-      if (cmd == null) {
-        await speak(
-          'No entendí el comando. Intenta decir: ver conejos o ver sensores',
-        );
-        return;
+      await _applyVoiceEffects(plan.effects);
+
+      final toSpeak = plan.deferredSpeech
+          ? _voiceController.finishDeferredSpeech()
+          : plan.speech;
+
+      if (lastCommand != null) {
+        _lastCommandTextKey = trimmed.toLowerCase();
+        _lastCommandTime = DateTime.now();
       }
 
-      _lastCommandTextKey = trimmed.toLowerCase();
-      _lastCommandTime = DateTime.now();
+      if (toSpeak != null && toSpeak.trim().isNotEmpty) {
+        await speak(toSpeak);
+      }
 
-      await _execute(cmd);
       if (!kReleaseMode) {
-        debugPrint('VoiceVM: command executed cmd=$cmd');
+        debugPrint('VoiceVM: handleVoiceInput cmd=$lastCommand');
       }
     } finally {
       _isProcessingCommand = false;
@@ -261,102 +299,14 @@ class VoiceViewModel extends ChangeNotifier {
     }
   }
 
+  /// Compatibilidad con llamadas existentes (mic / debug); delega en [handleVoiceInput].
+  Future<void> applyCommandFromText(String text) async {
+    await handleVoiceInput(text);
+  }
+
   Future<void> applyLastRecognition() async {
     final text = _voice.lastRecognizedWords ?? '';
     await applyCommandFromText(text);
-  }
-
-  Future<void> _execute(VoiceCommand cmd) async {
-    switch (cmd) {
-      case VoiceCommand.createRabbit:
-        _onOpenCreate?.call();
-        await speak('Creando nuevo conejo');
-        break;
-      case VoiceCommand.listRabbits:
-        _onPopToRoot?.call();
-        if (_currentTabIndex == 0) {
-          await _rabbits.loadRabbits();
-          await speak('Actualizando lista de conejos');
-        } else {
-          _onChangeTab?.call(0);
-          await _rabbits.loadRabbits();
-          await speak('Abriendo conejos');
-        }
-        break;
-      case VoiceCommand.openDashboard:
-        _onPopToRoot?.call();
-        _onChangeTab?.call(1);
-        await _sensors.loadSensorReadings();
-        _sensors.startPolling();
-        await speak('Mostrando panel IoT');
-        break;
-      case VoiceCommand.showSensors:
-        await _executeShowSensors();
-        break;
-    }
-  }
-
-  static final _voiceWordPattern = RegExp(r'\p{L}+', unicode: true);
-
-  _SensorVoiceSubIntent _sensorSubIntentFromLastPhrase() {
-    final raw = lastRecognitionText ?? '';
-    final words = _voiceWordPattern
-        .allMatches(raw.toLowerCase())
-        .map((m) => m.group(0)!)
-        .toSet();
-    if (words.contains('temperatura')) {
-      return _SensorVoiceSubIntent.temperature;
-    }
-    if (words.contains('agua') || words.contains('nivel')) {
-      return _SensorVoiceSubIntent.water;
-    }
-    return _SensorVoiceSubIntent.general;
-  }
-
-  String _formatSpokenDouble(double v) {
-    if (v == v.roundToDouble()) {
-      return v.round().toString();
-    }
-    return v.toStringAsFixed(1);
-  }
-
-  Future<void> _executeShowSensors() async {
-    _onPopToRoot?.call();
-    final onIoT = _currentTabIndex == 1;
-    if (!onIoT) {
-      _onChangeTab?.call(1);
-    }
-    await _sensors.loadSensorReadings();
-
-    switch (_sensorSubIntentFromLastPhrase()) {
-      case _SensorVoiceSubIntent.temperature:
-        final t = _sensors.latestRoomTemperature;
-        if (t != null) {
-          await speak(
-            'La temperatura actual es ${_formatSpokenDouble(t)} grados',
-          );
-        } else {
-          await speak('No hay datos de temperatura');
-        }
-        break;
-      case _SensorVoiceSubIntent.water:
-        final w = _sensors.latestTankWaterLevel;
-        if (w != null) {
-          await speak(
-            'El nivel de agua es ${_formatSpokenDouble(w)} por ciento',
-          );
-        } else {
-          await speak('No hay datos de agua');
-        }
-        break;
-      case _SensorVoiceSubIntent.general:
-        if (onIoT) {
-          await speak('Actualizando sensores');
-        } else {
-          await speak('Mostrando sensores');
-        }
-        break;
-    }
   }
 
   @override
