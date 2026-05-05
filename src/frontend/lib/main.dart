@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/app/app_root.dart';
 import 'core/network/api_client.dart';
+import 'core/theme/cuni_theme.dart';
 import 'core/voice/app_voice_form_bridge.dart';
 import 'services/auth_service.dart';
 import 'services/rabbit_service.dart';
@@ -13,9 +15,6 @@ import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/rabbit_viewmodel.dart';
 import 'viewmodels/sensor_viewmodel.dart';
 import 'viewmodels/voice_viewmodel.dart';
-import 'screens/auth/login_screen.dart';
-import 'views/auth/biometric_lock_screen.dart';
-import 'views/auth/splash_screen.dart';
 import 'views/iot/iot_dashboard_view.dart';
 import 'views/rabbits/rabbit_create_route.dart';
 import 'views/rabbits/rabbit_list_view.dart';
@@ -95,35 +94,10 @@ class CuniSmartApp extends StatelessWidget {
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
         title: 'CuniSmart',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-          useMaterial3: true,
-        ),
-        home: const _AuthRoot(),
+        debugShowCheckedModeBanner: false,
+        theme: CuniTheme.light(),
+        home: AppRoot(home: _MainShell(key: _appMainShellKey)),
       ),
-    );
-  }
-}
-
-/// Gates navigation: splash → bootstrap → login | biometric lock | main shell only.
-class _AuthRoot extends StatelessWidget {
-  const _AuthRoot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<AuthViewModel>(
-      builder: (context, auth, _) {
-        switch (auth.gate) {
-          case AuthGate.splash:
-            return const SplashScreen();
-          case AuthGate.login:
-            return const LoginScreen();
-          case AuthGate.biometricLock:
-            return const BiometricLockScreen();
-          case AuthGate.app:
-            return _MainShell(key: _appMainShellKey);
-        }
-      },
     );
   }
 }
