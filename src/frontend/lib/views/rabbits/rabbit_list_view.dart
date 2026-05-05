@@ -5,7 +5,7 @@ import '../../core/state/async_view_state.dart';
 import '../../core/state/submit_state.dart';
 import '../../models/rabbit.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
-import 'rabbit_create_view.dart';
+import 'rabbit_create_route.dart';
 
 class RabbitListView extends StatefulWidget {
   const RabbitListView({super.key});
@@ -57,7 +57,7 @@ class _RabbitListViewState extends State<RabbitListView> {
             : () async {
                 final created = await Navigator.of(context).push<bool>(
                   MaterialPageRoute(
-                    builder: (_) => const RabbitCreateView(),
+                    builder: (_) => const RabbitCreateRoute(),
                   ),
                 );
                 if (created == true && context.mounted) {
@@ -338,7 +338,7 @@ class _RabbitListViewState extends State<RabbitListView> {
                           : () async {
                               final updated = await Navigator.of(context).push<bool>(
                                 MaterialPageRoute(
-                                  builder: (_) => RabbitCreateView(rabbit: r),
+                                  builder: (_) => RabbitCreateRoute(rabbit: r),
                                 ),
                               );
                               if (updated == true && context.mounted) {
