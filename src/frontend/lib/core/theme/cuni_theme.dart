@@ -9,6 +9,14 @@ class CuniTheme {
   static const Color borderGray = Color(0xFFD1D6D2);
   static const Color placeholderGray = Color(0xFF8A908C);
 
+  // Rabbits (organic green UI system)
+  static const Color rabbitsBackground = Color(0xFFF3F6F3);
+  static const Color rabbitsCardBackground = Color(0xFFEBF1EA);
+  static const Color rabbitsPrimaryGreen = Color(0xFF86BC68);
+  static const Color rabbitsTextPrimary = Color(0xFF1A2E1A);
+  static const Color rabbitsTextSecondary = Color(0xFF657965);
+  static const Color rabbitsDelete = Color(0xFFC85A54);
+
   static ThemeData light() {
     final scheme = ColorScheme.fromSeed(
       seedColor: primaryGreen,

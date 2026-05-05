@@ -28,10 +28,12 @@ class VoiceViewModel extends ChangeNotifier {
     VoidCallback? onRequestOpenCreateRabbitScreen,
     VoidCallback? onRequestPopToRoot,
     void Function(int index)? onChangeTab,
+    void Function(String message)? onUiFeedback,
     int currentTabIndex = 0,
   })  : _onOpenCreate = onRequestOpenCreateRabbitScreen,
         _onPopToRoot = onRequestPopToRoot,
         _onChangeTab = onChangeTab,
+        _onUiFeedback = onUiFeedback,
         _currentTabIndex = currentTabIndex {
     _voiceController = VoiceController(
       intentParser: VoiceIntentParser(voiceCommandParser),
@@ -49,6 +51,7 @@ class VoiceViewModel extends ChangeNotifier {
   final VoidCallback? _onOpenCreate;
   final VoidCallback? _onPopToRoot;
   final void Function(int index)? _onChangeTab;
+  final void Function(String message)? _onUiFeedback;
 
   int _currentTabIndex;
 
@@ -145,6 +148,11 @@ class VoiceViewModel extends ChangeNotifier {
     if (!kReleaseMode) {
       debugPrint('VoiceVM: ensureVoiceReady -> $ok');
     }
+    if (!ok) {
+      _onUiFeedback?.call(
+        'No se pudo activar el micrófono. Revisa permisos de audio.',
+      );
+    }
     notifyListeners();
   }
 
@@ -239,6 +247,31 @@ class VoiceViewModel extends ChangeNotifier {
 
   Future<void> stopListening() async {
     await finalizeListeningSession();
+  }
+
+  /// Alias requested by integration layer: normalize + route to [handleVoiceInput].
+  Future<void> handleCommand(String command) async {
+    final t = command.trim().toLowerCase();
+    if (t.isEmpty) return;
+    await handleVoiceInput(t);
+  }
+
+  String _commandLabel(VoiceCommand cmd) {
+    return switch (cmd) {
+      VoiceCommand.createRabbitVoiceForm => 'crear conejo',
+      VoiceCommand.listRabbits => 'ver conejos',
+      VoiceCommand.listRabbitsDetailed => 'ver conejos (detalle)',
+      VoiceCommand.openDashboard => 'abrir panel',
+      VoiceCommand.showSensors => 'ver sensores',
+      VoiceCommand.getRabbitCount => 'contar conejos',
+      VoiceCommand.getRabbitWeightById => 'peso por ID',
+      VoiceCommand.getLatestWeightEvents => 'últimos pesos',
+      VoiceCommand.getRabbitWeightHistory => 'historial de peso',
+      VoiceCommand.weightByName => 'peso por nombre',
+      VoiceCommand.deleteRabbitRequest => 'eliminar conejo',
+      VoiceCommand.updateRabbitVoice => 'actualizar conejo',
+      VoiceCommand.viewRabbitInfo => 'ver información',
+    };
   }
 
   bool _shouldIgnoreDuplicateCommandText(String rawText) {
@@ -557,6 +590,15 @@ class VoiceViewModel extends ChangeNotifier {
         rabbitFormSnapshot: _voiceFormBridge.readRabbitCreateSnapshot(),
       );
       lastCommand = _voiceController.lastParsedCommand;
+
+      final fb = _onUiFeedback;
+      if (fb != null) {
+        if (lastCommand == null) {
+          fb('No se entendió el comando.');
+        } else {
+          fb('Comando reconocido: ${_commandLabel(lastCommand!)}');
+        }
+      }
 
       if (_pendingDeleteRabbitId != null &&
           lastCommand != null &&

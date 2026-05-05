@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,9 +14,11 @@ import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/rabbit_viewmodel.dart';
 import 'viewmodels/sensor_viewmodel.dart';
 import 'viewmodels/voice_viewmodel.dart';
-import 'views/iot/iot_dashboard_view.dart';
 import 'views/rabbits/rabbit_create_route.dart';
 import 'views/rabbits/rabbit_list_view.dart';
+import 'views/iot/iot_dashboard_view.dart';
+import 'features/rabbits/presentation/widgets/custom_bottom_bar.dart';
+import 'widgets/voice_listening_overlay.dart';
 
 /// Used so [VoiceViewModel] can open routes without a [BuildContext] from a nested rebuild.
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -87,6 +88,13 @@ class CuniSmartApp extends StatelessWidget {
               appNavigatorKey.currentState?.popUntil((r) => r.isFirst);
             },
             onChangeTab: _setMainShellTab,
+            onUiFeedback: (message) {
+              final ctx2 = appNavigatorKey.currentState?.context;
+              if (ctx2 == null) return;
+              ScaffoldMessenger.of(ctx2)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(content: Text(message)));
+            },
             currentTabIndex: 0,
           ),
         ),
@@ -121,124 +129,22 @@ class _MainShellState extends State<_MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final voice = context.watch<VoiceViewModel>();
-    final showBanner = voice.isProcessing || voice.voice.isListening;
-
     return Scaffold(
       body: Stack(
         children: [
           _index == 0 ? const RabbitListView() : const IoTDashboardView(),
-          if (showBanner) _VoiceStatusChip(voice: voice),
+          if (context.watch<VoiceViewModel>().isVoiceModeEnabled)
+            const VoiceListeningOverlay(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: setTabIndex,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.pets_outlined),
-            label: 'Rabbits',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sensors),
-            label: 'IoT',
-          ),
+      bottomNavigationBar: CustomBottomBar(
+        activeIndex: _index,
+        onTap: setTabIndex,
+        items: const [
+          BottomBarItem(icon: Icons.pets_outlined, label: 'Conejos'),
+          BottomBarItem(icon: Icons.sensors, label: 'IoT'),
         ],
       ),
-      floatingActionButton: const _VoiceMicButton(heroTag: 'voice_mic_shell'),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-    );
-  }
-}
-
-/// Listening vs processing feedback (minimal chip).
-class _VoiceStatusChip extends StatelessWidget {
-  const _VoiceStatusChip({required this.voice});
-
-  final VoiceViewModel voice;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final label = voice.isProcessing ? 'Procesando…' : 'Escuchando…';
-
-    return SafeArea(
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Material(
-            elevation: 2,
-            borderRadius: BorderRadius.circular(999),
-            color: scheme.surfaceContainerHighest.withOpacity(0.92),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    voice.isProcessing ? Icons.hourglass_top : Icons.mic,
-                    size: 20,
-                    color: scheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Mic: tap starts listening; tap again stops and runs command / silence handling.
-class _VoiceMicButton extends StatefulWidget {
-  const _VoiceMicButton({required this.heroTag});
-
-  final Object heroTag;
-
-  @override
-  State<_VoiceMicButton> createState() => _VoiceMicButtonState();
-}
-
-class _VoiceMicButtonState extends State<_VoiceMicButton> {
-  Future<void> _toggle() async {
-    final vm = context.read<VoiceViewModel>();
-    debugPrint(
-      'VoiceMic: tap isListening=${vm.voice.isListening} kVoiceDebugBypassStt=$kVoiceDebugBypassStt',
-    );
-
-    if (kDebugMode && kVoiceDebugBypassStt) {
-      debugPrint('VoiceMic: debug bypass — applyCommandFromText("ver conejos")');
-      await vm.applyCommandFromText('ver conejos');
-      if (mounted) setState(() {});
-      return;
-    }
-
-    await vm.toggleMicrophone();
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vm = context.watch<VoiceViewModel>();
-    final listening = vm.isVoiceModeEnabled;
-    final scheme = Theme.of(context).colorScheme;
-
-    return FloatingActionButton.small(
-      heroTag: widget.heroTag,
-      tooltip: listening ? 'Detener y procesar' : 'Voz',
-      backgroundColor:
-          listening ? scheme.errorContainer : scheme.secondaryContainer,
-      foregroundColor:
-          listening ? scheme.onErrorContainer : scheme.onSecondaryContainer,
-      onPressed: _toggle,
-      child: const Icon(Icons.mic),
     );
   }
 }
