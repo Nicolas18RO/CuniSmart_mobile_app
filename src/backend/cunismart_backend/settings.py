@@ -183,7 +183,7 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Base URL used in verification emails (must match how clients reach the API)
 VERIFICATION_PUBLIC_BASE_URL = os.environ.get(
     'VERIFICATION_PUBLIC_BASE_URL',
-    'http://192.168.1.4:8000',
+    'http://10.229.17.34:8000',
 )
 
 # Signed verification token lifetime (seconds). Default: 48 hours
