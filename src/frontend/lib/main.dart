@@ -7,14 +7,17 @@ import 'core/network/api_client.dart';
 import 'core/theme/cuni_theme.dart';
 import 'core/voice/app_voice_form_bridge.dart';
 import 'services/auth_service.dart';
+import 'services/chatbot_service.dart';
 import 'services/rabbit_service.dart';
 import 'services/sensor_service.dart';
 import 'services/voice_command_parser.dart';
 import 'services/voice_service.dart';
 import 'viewmodels/auth_viewmodel.dart';
+import 'viewmodels/chatbot_viewmodel.dart';
 import 'viewmodels/rabbit_viewmodel.dart';
 import 'viewmodels/sensor_viewmodel.dart';
 import 'viewmodels/voice_viewmodel.dart';
+import 'views/chatbot/chatbot_view.dart';
 import 'views/iot/iot_dashboard_view.dart';
 import 'views/rabbits/rabbit_create_route.dart';
 import 'views/rabbits/rabbit_list_view.dart';
@@ -50,6 +53,7 @@ class CuniSmartApp extends StatelessWidget {
 
     final rabbitService = RabbitService(apiClient);
     final sensorService = SensorService(apiClient);
+    final chatbotService = ChatbotService(apiClient);
 
     return MultiProvider(
       providers: [
@@ -60,6 +64,7 @@ class CuniSmartApp extends StatelessWidget {
         ),
         Provider<RabbitService>.value(value: rabbitService),
         Provider<SensorService>.value(value: sensorService),
+        Provider<ChatbotService>.value(value: chatbotService),
         Provider<VoiceService>(create: (_) => VoiceService()),
         Provider<VoiceCommandParser>.value(value: const VoiceCommandParser()),
         ChangeNotifierProvider<RabbitViewModel>(
@@ -67,6 +72,9 @@ class CuniSmartApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<SensorViewModel>(
           create: (_) => SensorViewModel(sensorService),
+        ),
+        ChangeNotifierProvider<ChatbotViewModel>(
+          create: (_) => ChatbotViewModel(chatbotService),
         ),
         ChangeNotifierProvider<AppVoiceFormBridge>(
           create: (_) => AppVoiceFormBridge(),
@@ -114,7 +122,7 @@ class _MainShellState extends State<_MainShell> {
 
   void setTabIndex(int index) {
     if (!mounted) return;
-    if (index < 0 || index > 1) return;
+    if (index < 0 || index > 2) return;
     setState(() => _index = index);
     context.read<VoiceViewModel>().updateCurrentTabIndex(index);
   }
@@ -127,7 +135,11 @@ class _MainShellState extends State<_MainShell> {
     return Scaffold(
       body: Stack(
         children: [
-          _index == 0 ? const RabbitListView() : const IoTDashboardView(),
+          _index == 0
+              ? const RabbitListView()
+              : _index == 1
+                  ? const IoTDashboardView()
+                  : const ChatbotView(),
           if (showBanner) _VoiceStatusChip(voice: voice),
         ],
       ),
@@ -142,6 +154,10 @@ class _MainShellState extends State<_MainShell> {
           NavigationDestination(
             icon: Icon(Icons.sensors),
             label: 'IoT',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'CuniBot',
           ),
         ],
       ),

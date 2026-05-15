@@ -14,8 +14,12 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -46,6 +50,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'accounts',
     'core',
+    'chatbot',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -183,7 +188,7 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Base URL used in verification emails (must match how clients reach the API)
 VERIFICATION_PUBLIC_BASE_URL = os.environ.get(
     'VERIFICATION_PUBLIC_BASE_URL',
-    'http://10.229.17.34:8000',
+    'http://192.168.1.5:8000',
 )
 
 # Signed verification token lifetime (seconds). Default: 48 hours
@@ -197,3 +202,6 @@ VERIFICATION_EMAIL_SUBJECT = os.environ.get(
 )
 
 # SMTP: configure via env vars in production/dev machines.
+
+# Gemini (Google AI Studio)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
