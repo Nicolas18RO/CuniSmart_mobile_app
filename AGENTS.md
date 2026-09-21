@@ -9,6 +9,28 @@
 ## Setup & Commands
 Execute these commands for standard development workflows. Do not invent new package manager commands.
 
+## Project Structure (Source of Truth)
+
+All development must follow this repository structure strictly:
+
+- Backend (Django REST): src/backend/
+- Frontend (Flutter): src/frontend/
+
+Backend rules:
+- Django project MUST exist inside src/backend/
+- All apps (e.g. core, rabbits, sensors) must be created inside src/backend/
+- Do NOT create a new Django project outside this directory
+- Assume manage.py is located in src/backend/
+
+Frontend rules:
+- Flutter app lives in src/frontend/
+- Do NOT create multiple Flutter projects
+
+Environment rules:
+- Python virtual environment is located in src/backend/venv/
+- If venv exists, reuse it
+- Do NOT create multiple virtual environments
+
 ### Mobile (Flutter)
 - **Setup:** `flutter pub get`
 - **Development:** `flutter run`
