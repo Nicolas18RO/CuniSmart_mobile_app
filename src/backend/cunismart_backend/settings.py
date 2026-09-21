@@ -28,12 +28,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$m6vx50z3!ir$y(to%43ixytlw-9mh9nuvro^#v8vnn-j$j$oy'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-dev-not-for-production",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if h.strip()
+]
 
 
 # Application definition
@@ -93,7 +100,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('POSTGRES_DB', 'cunismart_db'),
         'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'nicolas118'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
@@ -178,9 +185,8 @@ EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
 
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'soyyootravez75@gmail.com')
-# IMPORTANT: do not hardcode app passwords in source control.
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'fzyk zoqm jwbm zyxf')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
@@ -188,12 +194,29 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Base URL used in verification emails (must match how clients reach the API)
 VERIFICATION_PUBLIC_BASE_URL = os.environ.get(
     'VERIFICATION_PUBLIC_BASE_URL',
-    'http://192.168.1.5:8000',
+    'http://127.0.0.1:8000',
 )
 
 # Signed verification token lifetime (seconds). Default: 48 hours
 EMAIL_VERIFICATION_MAX_AGE_SECONDS = int(
     os.environ.get('EMAIL_VERIFICATION_MAX_AGE_SECONDS', str(48 * 3600))
+)
+
+# One-time password reset token lifetime (seconds). Default: 1 hour
+PASSWORD_RESET_MAX_AGE_SECONDS = int(
+    os.environ.get('PASSWORD_RESET_MAX_AGE_SECONDS', str(3600))
+)
+PASSWORD_RESET_MAX_ATTEMPTS = int(
+    os.environ.get('PASSWORD_RESET_MAX_ATTEMPTS', '5')
+)
+
+# One-time device-credential challenge for biometric login. Default: 90 seconds
+DEVICE_CREDENTIAL_CHALLENGE_TTL_SECONDS = int(
+    os.environ.get('DEVICE_CREDENTIAL_CHALLENGE_TTL_SECONDS', '90')
+)
+PASSWORD_RESET_EMAIL_SUBJECT = os.environ.get(
+    'PASSWORD_RESET_EMAIL_SUBJECT',
+    'CuniSmart password recovery',
 )
 
 VERIFICATION_EMAIL_SUBJECT = os.environ.get(

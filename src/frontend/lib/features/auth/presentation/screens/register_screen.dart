@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../../../core/errors/auth_ui_error.dart';
+import '../../../../core/errors/error_mapper.dart';
 import '../../../../core/theme/cuni_theme.dart';
+import '../../../../viewmodels/auth_viewmodel.dart';
+import '../widgets/cuni_smart_error_dialog.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/custom_text_field.dart';
+import 'verify_email_screen.dart';
 
 typedef RegisterSubmit = Future<void> Function({
   required String email,
@@ -10,9 +16,16 @@ typedef RegisterSubmit = Future<void> Function({
 });
 
 class AuthRegisterScreen extends StatefulWidget {
-  const AuthRegisterScreen({super.key, this.onSubmit});
+  const AuthRegisterScreen({
+    super.key,
+    this.onSubmit,
+    this.onVerifyEmail,
+    this.onResendVerification,
+  });
 
   final RegisterSubmit? onSubmit;
+  final VerifyEmailSubmit? onVerifyEmail;
+  final ResendVerificationCode? onResendVerification;
 
   @override
   State<AuthRegisterScreen> createState() => _AuthRegisterScreenState();
@@ -54,15 +67,42 @@ class _AuthRegisterScreenState extends State<AuthRegisterScreen> {
         password: _password.text,
       );
       if (!mounted) return;
+      final email = _email.text.trim();
+      if (widget.onVerifyEmail != null) {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => AuthVerifyEmailScreen(
+              email: email,
+              onVerify: widget.onVerifyEmail,
+              onResend: widget.onResendVerification,
+            ),
+          ),
+        );
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Cuenta creada. Por favor verifica tu correo.'),
         ),
       );
       Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      await showCuniSmartErrorDialog(context, _resolveUiError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  AuthUiError _resolveUiError(Object error) {
+    try {
+      final mapped = context.read<AuthViewModel>().lastError;
+      if (mapped != null) return mapped;
+    } on ProviderNotFoundException {
+      // Widget tests may pump Register without a ViewModel.
+    }
+    return ErrorMapper.map(error, context: AuthErrorContext.register);
   }
 
   @override
@@ -148,7 +188,7 @@ class _AuthRegisterScreenState extends State<AuthRegisterScreen> {
                               if (v == null || v.isEmpty) {
                                 return 'Campo requerido';
                               }
-                              if (v.length < 6) return 'Mínimo 6 caracteres';
+                              if (v.length < 8) return 'Mínimo 8 caracteres';
                               return null;
                             },
                           ),
@@ -189,11 +229,13 @@ class _AuthRegisterScreenState extends State<AuthRegisterScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          '¿Ya tienes una cuenta? ',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: CuniTheme.placeholderGray,
-                              ),
+                        Flexible(
+                          child: Text(
+                            '¿Ya tienes una cuenta? ',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: CuniTheme.placeholderGray,
+                                ),
+                          ),
                         ),
                         TextButton(
                           onPressed: _busy ? null : () => Navigator.of(context).pop(),

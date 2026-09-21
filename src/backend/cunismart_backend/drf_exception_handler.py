@@ -59,7 +59,7 @@ def cunismart_exception_handler(exc: Exception, context: dict) -> Any:
     if isinstance(data, dict) and "detail" in data and "code" in data:
         response.data = {
             "detail": _detail_to_str(data["detail"]),
-            "code": str(data["code"]),
+            "code": _detail_to_str(data["code"]),
         }
         return response
 

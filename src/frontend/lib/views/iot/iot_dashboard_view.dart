@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/state/async_view_state.dart';
+import '../../features/auth/presentation/screens/security_settings_screen.dart';
 import '../../models/rabbit.dart';
 import '../../models/sensor_reading.dart';
 import '../../viewmodels/auth_viewmodel.dart';
@@ -56,6 +57,17 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
             icon: const Icon(Icons.logout),
             onPressed: () => context.read<AuthViewModel>().logout(),
             tooltip: 'Cerrar sesión',
+          ),
+          IconButton(
+            icon: const Icon(Icons.security),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AuthSecuritySettingsScreen(),
+                ),
+              );
+            },
+            tooltip: 'Seguridad',
           ),
           IconButton(
             icon: const Icon(Icons.refresh),

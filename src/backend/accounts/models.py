@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -99,3 +101,93 @@ class UserSettings(models.Model):
 
     def __str__(self) -> str:
         return f"Settings<{self.user_id}>"
+
+
+class PasswordResetToken(models.Model):
+    """One-time hashed 6-digit recovery code. Raw code is emailed, never stored."""
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    token_hash = models.CharField(max_length=64, db_index=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("password reset token")
+        verbose_name_plural = _("password reset tokens")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"PasswordResetToken<{self.user_id}>"
+
+
+class EmailVerificationCode(models.Model):
+    """One-time hashed 6-digit email verification code. Raw code is emailed, never stored."""
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="email_verification_codes",
+    )
+    code_hash = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("email verification code")
+        verbose_name_plural = _("email verification codes")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"EmailVerificationCode<{self.user_id}>"
+
+
+class DeviceCredential(models.Model):
+    """Public key of a device enrolled for biometric login (option C). Never stores samples."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="device_credentials",
+    )
+    public_key = models.TextField()
+    device_label = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("device credential")
+        verbose_name_plural = _("device credentials")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"DeviceCredential<{self.user_id}:{self.pk}>"
+
+
+class DeviceChallenge(models.Model):
+    """One-time nonce bound to a device credential (anti-replay)."""
+
+    credential = models.ForeignKey(
+        DeviceCredential,
+        on_delete=models.CASCADE,
+        related_name="challenges",
+    )
+    nonce_hash = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("device challenge")
+        verbose_name_plural = _("device challenges")
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"DeviceChallenge<{self.credential_id}>"

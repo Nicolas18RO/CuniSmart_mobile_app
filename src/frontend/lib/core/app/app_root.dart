@@ -1,11 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/errors/api_exception.dart';
+import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
-import '../../services/auth_service.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../views/auth/biometric_lock_screen.dart';
 
@@ -22,59 +19,86 @@ class AppRoot extends StatefulWidget {
   State<AppRoot> createState() => _AppRootState();
 }
 
-class _AppRootState extends State<AppRoot> {
+class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   late final Future<void> _bootstrapFuture;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrapFuture = context.read<AuthViewModel>().runBootstrap();
   }
 
-  String? _parseBackendDetail(Object e) {
-    if (e is ApiException) {
-      try {
-        final map = jsonDecode(e.message) as Map<String, dynamic>?;
-        if (map != null && map['detail'] != null) {
-          return map['detail'].toString();
-        }
-      } catch (_) {
-        return e.message;
-      }
-      return e.message;
-    }
-    return e.toString();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    context.read<AuthViewModel>().handleAppLifecycle(state);
   }
 
   Future<void> _register({
     required String email,
     required String password,
-  }) async {
-    try {
-      await context.read<AuthService>().register(email: email, password: password);
-    } catch (e) {
-      if (!mounted) return;
-      final msg = _parseBackendDetail(e) ?? 'Request failed';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      rethrow;
-    }
+  }) {
+    return context.read<AuthViewModel>().register(
+          email: email,
+          password: password,
+        );
   }
 
   Future<void> _login({
     required String email,
     required String password,
-  }) async {
-    try {
-      await context.read<AuthViewModel>().loginWithPassword(
-            email: email,
-            password: password,
-          );
-    } catch (e) {
-      if (!mounted) return;
-      final msg = _parseBackendDetail(e) ?? 'Login failed';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      rethrow;
-    }
+  }) {
+    return context.read<AuthViewModel>().loginWithPassword(
+          email: email,
+          password: password,
+        );
+  }
+
+  Future<void> _requestPasswordReset({required String email}) {
+    return context.read<AuthViewModel>().requestPasswordReset(email: email);
+  }
+
+  Future<void> _confirmPasswordReset({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) {
+    return context.read<AuthViewModel>().confirmPasswordReset(
+          email: email,
+          code: code,
+          newPassword: newPassword,
+        );
+  }
+
+  Future<void> _resendVerification({required String email}) {
+    return context.read<AuthViewModel>().resendVerificationEmail(email: email);
+  }
+
+  Future<void> _verifyEmailCode({
+    required String email,
+    required String code,
+  }) {
+    return context.read<AuthViewModel>().verifyEmailCode(
+          email: email,
+          code: code,
+        );
+  }
+
+  void _openForgotPassword() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AuthForgotPasswordScreen(
+          onRequestReset: _requestPasswordReset,
+          onConfirmReset: _confirmPasswordReset,
+        ),
+      ),
+    );
   }
 
   @override
@@ -102,10 +126,11 @@ class _AppRootState extends State<AppRoot> {
         return AuthLoginScreen(
           onSubmit: _login,
           onRegisterSubmit: _register,
-          onForgotPassword: null,
+          onForgotPassword: _openForgotPassword,
+          onResendVerification: _resendVerification,
+          onVerifyEmail: _verifyEmailCode,
         );
       },
     );
   }
 }
-

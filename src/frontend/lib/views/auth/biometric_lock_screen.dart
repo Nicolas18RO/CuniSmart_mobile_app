@@ -83,15 +83,23 @@ class _BiometricLockScreenState extends State<BiometricLockScreen> {
                 ),
               ],
               const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: _manualUnlock,
-                icon: const Icon(Icons.fingerprint),
-                label: const Text('Desbloquear'),
+              Semantics(
+                button: true,
+                label: 'Desbloquear',
+                child: FilledButton.icon(
+                  onPressed: _manualUnlock,
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Desbloquear'),
+                ),
               ),
               const SizedBox(height: 12),
-              TextButton(
-                onPressed: _useAnotherAccount,
-                child: const Text('Usar otra cuenta'),
+              Semantics(
+                button: true,
+                label: 'Usar otra cuenta',
+                child: TextButton(
+                  onPressed: _useAnotherAccount,
+                  child: const Text('Usar otra cuenta'),
+                ),
               ),
             ],
           ),

@@ -88,10 +88,8 @@ class LogoutAPIView(APIView):
         try:
             token = RefreshToken(refresh_str)
         except TokenError:
-            return Response(
-                {"detail": "Invalid or expired refresh token.", "code": "invalid_token"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            # Already unusable (expired / blacklisted / malformed): treat as logged out.
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
         claim_uid = token[jwt_settings.USER_ID_CLAIM]
         field = jwt_settings.USER_ID_FIELD

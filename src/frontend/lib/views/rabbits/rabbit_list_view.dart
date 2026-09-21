@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/state/async_view_state.dart';
 import '../../core/state/submit_state.dart';
+import '../../features/auth/presentation/screens/security_settings_screen.dart';
 import '../../models/rabbit.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
@@ -48,6 +49,19 @@ class _RabbitListViewState extends State<RabbitListView> {
             icon: const Icon(Icons.logout),
             onPressed: () => context.read<AuthViewModel>().logout(),
             tooltip: 'Cerrar sesión',
+          ),
+          IconButton(
+            iconSize: 28,
+            constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
+            icon: const Icon(Icons.security),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const AuthSecuritySettingsScreen(),
+                ),
+              );
+            },
+            tooltip: 'Seguridad',
           ),
           IconButton(
             iconSize: 28,

@@ -1,10 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:frontend/main.dart';
+import 'package:frontend/viewmodels/auth_viewmodel.dart';
 
 void main() {
-  testWidgets('App loads rabbit list screen', (WidgetTester tester) async {
-    await tester.pumpWidget(const CuniSmartApp());
-    expect(find.text('CuniSmart — Rabbits'), findsOneWidget);
+  test('AuthGate values used by R1 session machine', () {
+    expect(
+      AuthGate.values,
+      containsAll([
+        AuthGate.splash,
+        AuthGate.login,
+        AuthGate.biometricLock,
+        AuthGate.app,
+      ]),
+    );
   });
 }

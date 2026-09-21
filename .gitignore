@@ -11,6 +11,7 @@ db.sqlite3
 # Virtual environments
 venv/
 env/
+docs/
 
 # Flutter
 build/

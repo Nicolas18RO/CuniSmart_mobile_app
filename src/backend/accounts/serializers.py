@@ -152,3 +152,52 @@ class ResendVerificationSerializer(serializers.Serializer):
     """Request body for resending verification email."""
 
     email = serializers.EmailField()
+
+
+class VerifyEmailCodeSerializer(serializers.Serializer):
+    """Request body for confirming a 6-digit email verification code."""
+
+    email = serializers.EmailField()
+    code = serializers.CharField(write_only=True, min_length=6, max_length=6)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(write_only=True, min_length=6, max_length=6)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        style={"input_type": "password"},
+    )
+
+
+class DeviceCredentialEnrollSerializer(serializers.Serializer):
+    public_key = serializers.CharField()
+    device_label = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        incoming = set(self.initial_data.keys()) if hasattr(self.initial_data, "keys") else set()
+        forbidden = incoming & {"fingerprint", "password"}
+        if forbidden:
+            raise serializers.ValidationError(
+                {
+                    "detail": "Biometric samples and passwords must not be enrolled.",
+                    "code": "validation_error",
+                }
+            )
+        return attrs
+
+
+class DeviceCredentialChallengeSerializer(serializers.Serializer):
+    credential_id = serializers.CharField()
+
+
+class DeviceCredentialLoginSerializer(serializers.Serializer):
+    credential_id = serializers.CharField()
+    nonce = serializers.CharField()
+    signature = serializers.CharField()
+
