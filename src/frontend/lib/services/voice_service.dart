@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
@@ -14,8 +16,9 @@ const List<String> _kPreferredSttSpanishLocaleIds = [
 
 /// Thin wrapper around device STT + TTS. No UI or ViewModel coupling.
 ///
-/// [startListening] is only for explicit user-driven sessions (e.g. mic tap).
-/// It does not schedule or restart listening from [onResult] / status / errors.
+/// [startListening] is only for explicit user-driven sessions (e.g. mic tap)
+/// or recovery after TTS when the ViewModel requests it.
+/// It does not schedule listening from [onResult] / status by itself.
 class VoiceService {
   VoiceService()
       : _speech = SpeechToText(),
@@ -25,7 +28,10 @@ class VoiceService {
   final FlutterTts _tts;
 
   bool _speechInitialized = false;
+  bool _ttsCompletionConfigured = false;
   List<String> _sttLocaleIds = const [];
+  bool _isSpeaking = false;
+  Completer<void>? _speakDone;
 
   /// Last words from the most recent **final** recognition in the current/last session.
   String? lastRecognizedWords;
@@ -34,6 +40,30 @@ class VoiceService {
   void Function(SpeechRecognitionError error)? onSpeechError;
 
   bool get isListening => _speech.isListening;
+
+  /// True while TTS is producing audio (blocks [startListening]).
+  bool get isSpeaking => _isSpeaking;
+
+  Future<void> _configureTtsCompletion() async {
+    if (_ttsCompletionConfigured) return;
+    _ttsCompletionConfigured = true;
+    try {
+      await _tts.awaitSpeakCompletion(true);
+    } catch (e) {
+      debugPrint('VoiceService: awaitSpeakCompletion failed: $e');
+    }
+    try {
+      _tts.setCompletionHandler(() {
+        _isSpeaking = false;
+        final c = _speakDone;
+        if (c != null && !c.isCompleted) {
+          c.complete();
+        }
+      });
+    } catch (e) {
+      debugPrint('VoiceService: setCompletionHandler failed: $e');
+    }
+  }
 
   /// Initializes speech recognition (mic permission may be requested).
   Future<bool> ensureInitialized() async {
@@ -61,6 +91,7 @@ class VoiceService {
       } catch (e) {
         debugPrint('VoiceService: TTS setLanguage(es-ES) failed: $e');
       }
+      await _configureTtsCompletion();
     }
     return _speechInitialized && _speech.isAvailable;
   }
@@ -78,12 +109,16 @@ class VoiceService {
   static const Duration _defaultListenFor = Duration(seconds: 15);
   static const Duration _defaultPauseFor = Duration(seconds: 5);
 
-  /// Starts one listening session. Does not auto-restart when it ends.
+  /// Starts one listening session. Blocked while [isSpeaking].
   Future<void> startListening({
     void Function(SpeechRecognitionResult result)? onRecognitionResult,
     Duration? pauseFor,
     Duration? listenFor,
   }) async {
+    if (_isSpeaking) {
+      debugPrint('VoiceService: startListening blocked (TTS speaking)');
+      return;
+    }
     if (_speech.isListening) {
       return;
     }
@@ -140,14 +175,49 @@ class VoiceService {
     await _speech.stop();
   }
 
+  /// Speaks [text] and awaits TTS completion when the platform supports it.
   Future<void> speak(String text) async {
     final t = text.trim();
     if (t.isEmpty) return;
-    await _tts.speak(t);
+
+    await _configureTtsCompletion();
+
+    _isSpeaking = true;
+    final done = Completer<void>();
+    _speakDone = done;
+
+    try {
+      await _tts.speak(t);
+      // Prefer completion handler; fall back to timeout based on text length.
+      await done.future.timeout(
+        Duration(milliseconds: (t.length * 80).clamp(800, 20000)),
+        onTimeout: () {},
+      );
+    } catch (e, st) {
+      debugPrint('VoiceService: speak failed: $e\n$st');
+    } finally {
+      _isSpeaking = false;
+      if (!done.isCompleted) {
+        done.complete();
+      }
+      _speakDone = null;
+    }
+  }
+
+  Future<void> stopSpeaking() async {
+    try {
+      await _tts.stop();
+    } catch (_) {}
+    _isSpeaking = false;
+    final c = _speakDone;
+    if (c != null && !c.isCompleted) {
+      c.complete();
+    }
+    _speakDone = null;
   }
 
   Future<void> dispose() async {
     await stopListening();
-    await _tts.stop();
+    await stopSpeaking();
   }
 }

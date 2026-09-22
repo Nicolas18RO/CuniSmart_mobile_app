@@ -8,6 +8,8 @@ import '../../models/rabbit.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import 'rabbit_create_route.dart';
+import 'rabbit_detail_view.dart';
+import 'rabbit_qr_scan_view.dart';
 
 class RabbitListView extends StatefulWidget {
   const RabbitListView({super.key});
@@ -45,14 +47,16 @@ class _RabbitListViewState extends State<RabbitListView> {
         actions: [
           IconButton(
             iconSize: 28,
-            constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
+            constraints:
+                const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
             icon: const Icon(Icons.logout),
             onPressed: () => context.read<AuthViewModel>().logout(),
             tooltip: 'Cerrar sesión',
           ),
           IconButton(
             iconSize: 28,
-            constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
+            constraints:
+                const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
             icon: const Icon(Icons.security),
             onPressed: () {
               Navigator.of(context).push(
@@ -63,9 +67,24 @@ class _RabbitListViewState extends State<RabbitListView> {
             },
             tooltip: 'Seguridad',
           ),
+          Semantics(
+            button: true,
+            label: 'Escanear código QR',
+            child: IconButton(
+              iconSize: 28,
+              constraints: const BoxConstraints(
+                minWidth: _iconTap,
+                minHeight: _iconTap,
+              ),
+              icon: const Icon(Icons.qr_code_scanner),
+              tooltip: 'Escanear código QR',
+              onPressed: () => _scanQr(context),
+            ),
+          ),
           IconButton(
             iconSize: 28,
-            constraints: const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
+            constraints:
+                const BoxConstraints(minWidth: _iconTap, minHeight: _iconTap),
             icon: const Icon(Icons.refresh),
             onPressed: vm.isListLoading ? null : () => vm.loadRabbits(),
             tooltip: 'Actualizar lista',
@@ -99,7 +118,8 @@ class _RabbitListViewState extends State<RabbitListView> {
         ),
       AsyncLoading<List<Rabbit>>(:final cachedData) =>
         _buildLoadingBody(context, vm, cachedData),
-      AsyncSuccess<List<Rabbit>>(:final data) => _buildSuccessBody(context, vm, data),
+      AsyncSuccess<List<Rabbit>>(:final data) =>
+        _buildSuccessBody(context, vm, data),
       AsyncError<List<Rabbit>>(:final message, :final cachedData) =>
         _buildErrorBody(context, vm, message, cachedData),
     };
@@ -179,7 +199,8 @@ class _RabbitListViewState extends State<RabbitListView> {
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(200, 52),
-                  textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  textStyle: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 onPressed: vm.isListLoading ? null : () => vm.loadRabbits(),
                 icon: const Icon(Icons.refresh, size: 26),
@@ -222,7 +243,8 @@ class _RabbitListViewState extends State<RabbitListView> {
                     foregroundColor: scheme.onErrorContainer,
                   ),
                   onPressed: vm.isListLoading ? null : () => vm.loadRabbits(),
-                  child: const Text('Reintentar', style: TextStyle(fontSize: 16)),
+                  child:
+                      const Text('Reintentar', style: TextStyle(fontSize: 16)),
                 ),
               ],
             ),
@@ -277,71 +299,87 @@ class _RabbitListViewState extends State<RabbitListView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        r.name,
-                        style: textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: scheme.onSurface,
-                          height: 1.15,
+                  child: InkWell(
+                    onTap: () async {
+                      final changed = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute(
+                          builder: (_) => RabbitDetailView(rabbit: r),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Raza',
-                        style: textTheme.labelLarge?.copyWith(
-                          color: scheme.onSurface.withOpacity(0.75),
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        r.breed,
-                        style: textTheme.titleMedium?.copyWith(
-                          color: scheme.onSurface,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Estado',
-                        style: textTheme.labelLarge?.copyWith(
-                          color: scheme.onSurface.withOpacity(0.75),
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _statusLabel(r.status),
-                        style: textTheme.titleMedium?.copyWith(
-                          color: scheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (r.weight != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Peso',
-                          style: textTheme.labelLarge?.copyWith(
-                            color: scheme.onSurface.withOpacity(0.75),
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.2,
+                      );
+                      if (changed == true && context.mounted) {
+                        await context.read<RabbitViewModel>().loadRabbits();
+                      }
+                    },
+                    child: Semantics(
+                      button: true,
+                      label: 'Ficha de ${r.name}, ${r.syncStatus.label}',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            r.name,
+                            style: textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: scheme.onSurface,
+                              height: 1.15,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${r.weight!.toStringAsFixed(1)} kg',
-                          style: textTheme.titleMedium?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.w600,
+                          const SizedBox(height: 10),
+                          Text(
+                            'Raza',
+                            style: textTheme.labelLarge?.copyWith(
+                              color: scheme.onSurface.withOpacity(0.75),
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
                           ),
-                        ),
-                      ],
-                    ],
+                          const SizedBox(height: 2),
+                          Text(
+                            r.breed,
+                            style: textTheme.titleMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Estado',
+                            style: textTheme.labelLarge?.copyWith(
+                              color: scheme.onSurface.withOpacity(0.75),
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _statusLabel(r.status),
+                            style: textTheme.titleMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (r.weight != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Peso',
+                              style: textTheme.labelLarge?.copyWith(
+                                color: scheme.onSurface.withOpacity(0.75),
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${r.weight!.toStringAsFixed(1)} kg',
+                              style: textTheme.titleMedium?.copyWith(
+                                color: scheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 Column(
@@ -358,13 +396,16 @@ class _RabbitListViewState extends State<RabbitListView> {
                       onPressed: vm.isSubmitting
                           ? null
                           : () async {
-                              final updated = await Navigator.of(context).push<bool>(
+                              final updated =
+                                  await Navigator.of(context).push<bool>(
                                 MaterialPageRoute(
                                   builder: (_) => RabbitCreateRoute(rabbit: r),
                                 ),
                               );
                               if (updated == true && context.mounted) {
-                                await context.read<RabbitViewModel>().loadRabbits();
+                                await context
+                                    .read<RabbitViewModel>()
+                                    .loadRabbits();
                               }
                             },
                     ),
@@ -388,6 +429,21 @@ class _RabbitListViewState extends State<RabbitListView> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _scanQr(BuildContext context) async {
+    final rabbit = await Navigator.of(context).push<Rabbit>(
+      MaterialPageRoute(builder: (_) => const RabbitQrScanView()),
+    );
+    if (rabbit == null || !context.mounted) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => RabbitDetailView(
+          rabbit: rabbit,
+          announceOnOpen: true,
+        ),
+      ),
     );
   }
 
@@ -438,7 +494,8 @@ class _RabbitListViewState extends State<RabbitListView> {
               minimumSize: const Size(120, 48),
               backgroundColor: scheme.error,
               foregroundColor: scheme.onError,
-              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              textStyle:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Eliminar'),
@@ -448,7 +505,7 @@ class _RabbitListViewState extends State<RabbitListView> {
     );
     if (ok != true || !context.mounted) return;
 
-    final deleted = await vm.deleteRabbit(rabbit.id);
+    final deleted = await vm.deleteRabbit(rabbit.uuid);
     if (!context.mounted) return;
     if (!deleted) {
       final msg = switch (vm.submitState) {

@@ -1,23 +1,29 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../core/voice/app_voice_form_bridge.dart';
+import '../models/rabbit.dart';
 import '../services/voice_command_parser.dart';
 import '../services/voice_commands.dart';
 import '../services/voice_service.dart';
 import '../voice/controller/voice_controller.dart';
 import '../voice/form/voice_form_field.dart';
 import '../voice/form/voice_form_field_assignment.dart';
+import '../voice/hardware/hardware_voice_trigger.dart';
+import '../voice/hardware/volume_up_long_press_voice_trigger.dart';
 import 'rabbit_viewmodel.dart';
 import 'sensor_viewmodel.dart';
 
 /// Orquestador liviano: STT/TTS + [VoiceController] + efectos de shell (sin reglas de dominio).
 ///
 /// Push-to-talk: una sesión de escucha por activación del micrófono.
+/// Tras errores recuperables del formulario, reinicia STT al terminar el TTS.
 class VoiceViewModel extends ChangeNotifier {
   VoiceViewModel(
     this._voice,
@@ -29,15 +35,36 @@ class VoiceViewModel extends ChangeNotifier {
     VoidCallback? onRequestPopToRoot,
     void Function(int index)? onChangeTab,
     int currentTabIndex = 0,
+    HardwareVoiceTrigger? hardwareVoiceTrigger,
   })  : _onOpenCreate = onRequestOpenCreateRabbitScreen,
         _onPopToRoot = onRequestPopToRoot,
         _onChangeTab = onChangeTab,
-        _currentTabIndex = currentTabIndex {
+        _currentTabIndex = currentTabIndex,
+        _hardwareVoiceTrigger =
+            hardwareVoiceTrigger ?? VolumeUpLongPressVoiceTrigger() {
     _voiceController = VoiceController(
       intentParser: VoiceIntentParser(voiceCommandParser),
       aiEngine: VoiceAIEngine(_rabbits, _sensors),
     );
     _voice.onSpeechStatus = _onEngineSpeechStatus;
+    _voice.onSpeechError = _onEngineSpeechError;
+    _hardwareVoiceTrigger.onTrigger = () {
+      unawaited(_onHardwareVoiceTrigger());
+    };
+    _hardwareVoiceTrigger.start();
+  }
+
+  /// Long-press volumen: háptica + «Escuchando.» + mismo toggle que el FAB.
+  Future<void> _onHardwareVoiceTrigger() async {
+    try {
+      await HapticFeedback.mediumImpact();
+    } catch (_) {}
+    if (_voice.isListening) {
+      await toggleMicrophone();
+      return;
+    }
+    await speak('Escuchando.', allowRepeat: true);
+    await startListenSession();
   }
 
   late final VoiceController _voiceController;
@@ -49,6 +76,10 @@ class VoiceViewModel extends ChangeNotifier {
   final VoidCallback? _onOpenCreate;
   final VoidCallback? _onPopToRoot;
   final void Function(int index)? _onChangeTab;
+  final HardwareVoiceTrigger _hardwareVoiceTrigger;
+
+  /// PoC / activación secundaria: long-press volumen abajo (fallback FAB siempre).
+  HardwareVoiceTrigger get hardwareVoiceTrigger => _hardwareVoiceTrigger;
 
   int _currentTabIndex;
 
@@ -123,7 +154,7 @@ class VoiceViewModel extends ChangeNotifier {
   String? _lastCommandTextKey;
   DateTime? _lastCommandTime;
 
-  int? _pendingDeleteRabbitId;
+  String? _pendingDeleteRabbitUuid;
   String? _pendingDeleteDisplayName;
 
   void _resetListenSessionFlags() {
@@ -137,6 +168,33 @@ class VoiceViewModel extends ChangeNotifier {
         status == SpeechToText.doneStatus) {
       notifyListeners();
     }
+  }
+
+  void _onEngineSpeechError(SpeechRecognitionError error) {
+    unawaited(_handleSpeechRecognitionError(error));
+  }
+
+  /// Feedback audible ante errores STT (permiso / no disponible / timeout).
+  Future<void> _handleSpeechRecognitionError(
+    SpeechRecognitionError error,
+  ) async {
+    _hasVoiceError = true;
+    notifyListeners();
+    final msg = error.errorMsg.toLowerCase();
+    final String speech;
+    if (msg.contains('permission') || msg.contains('not allowed')) {
+      speech =
+          'No tengo permiso de micrófono. Actívalo en ajustes e inténtalo de nuevo.';
+    } else if (msg.contains('timeout') || msg.contains('network')) {
+      speech = 'Se agotó el tiempo de escucha. Pulsa el micrófono e inténtalo otra vez.';
+    } else if (msg.contains('busy') || msg.contains('recognizer')) {
+      speech =
+          'El micrófono no está disponible ahora. Espera un momento e inténtalo de nuevo.';
+    } else {
+      speech =
+          'Hubo un problema con el reconocimiento de voz. Inténtalo de nuevo.';
+    }
+    await speak(speech, allowRepeat: true);
   }
 
   Future<void> ensureVoiceReady() async {
@@ -157,6 +215,12 @@ class VoiceViewModel extends ChangeNotifier {
   }
 
   Future<void> startListenSession() async {
+    if (_voice.isSpeaking) {
+      if (!kReleaseMode) {
+        debugPrint('VoiceVM: startListenSession blocked (TTS speaking)');
+      }
+      return;
+    }
     if (_voice.isListening) {
       return;
     }
@@ -274,6 +338,27 @@ class VoiceViewModel extends ChangeNotifier {
     await _voice.speak(t);
   }
 
+  /// Tras TTS de recuperación del formulario, reinicia STT si el plan lo pide.
+  Future<void> _speakThenMaybeRelisten(
+    String? text, {
+    required bool shouldRestartListening,
+    bool allowRepeat = true,
+  }) async {
+    if (text != null && text.trim().isNotEmpty) {
+      await speak(text, allowRepeat: allowRepeat);
+    }
+    if (!shouldRestartListening) return;
+    if (_voiceFormBridge.rabbitCreateRouteOpen ||
+        _voiceFormBridge.isAwaitingFinalConfirmation) {
+      await startListenSession();
+    }
+  }
+
+  /// Reads the ficha with the existing R1 TTS (no second voice system).
+  Future<void> announceFicha(Rabbit rabbit) {
+    return speak(VoiceAIEngine.fichaSpeech(rabbit), allowRepeat: true);
+  }
+
   bool _isVoiceConfirmPhrase(String trimmedLower) {
     const phrases = {
       'confirmar',
@@ -302,20 +387,20 @@ class VoiceViewModel extends ChangeNotifier {
   }
 
   void _clearPendingDelete() {
-    _pendingDeleteRabbitId = null;
+    _pendingDeleteRabbitUuid = null;
     _pendingDeleteDisplayName = null;
   }
 
   Future<void> _handlePendingDeleteConfirm() async {
-    if (_pendingDeleteRabbitId == null) return;
+    if (_pendingDeleteRabbitUuid == null) return;
     if (_isProcessingCommand) return;
     _isProcessingCommand = true;
     notifyListeners();
     try {
-      final id = _pendingDeleteRabbitId!;
+      final uuid = _pendingDeleteRabbitUuid!;
       final name = _pendingDeleteDisplayName ?? '';
       _clearPendingDelete();
-      final ok = await _rabbits.deleteRabbit(id);
+      final ok = await _rabbits.deleteRabbit(uuid);
       await speak(
         ok
             ? 'Listo, eliminé a $name.'
@@ -329,7 +414,7 @@ class VoiceViewModel extends ChangeNotifier {
   }
 
   Future<void> _handlePendingDeleteCancel() async {
-    if (_pendingDeleteRabbitId == null) return;
+    if (_pendingDeleteRabbitUuid == null) return;
     if (_isProcessingCommand) return;
     _isProcessingCommand = true;
     notifyListeners();
@@ -343,17 +428,26 @@ class VoiceViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _applySingleFillGuidance(List<VoiceFormFieldAssignment> fills) async {
+  Future<void> _applySingleFillGuidance(
+      List<VoiceFormFieldAssignment> fills) async {
     final g = _voiceFormBridge.applyRabbitCreateAssignmentsWithGuidance(fills);
     if (g != null && g.trim().isNotEmpty) {
-      await speak(g);
+      await speak(g, allowRepeat: true);
+    }
+    if (_voiceFormBridge.rabbitCreateRouteOpen ||
+        _voiceFormBridge.isAwaitingFinalConfirmation) {
+      await startListenSession();
     }
   }
 
   Future<void> _afterBurstVoiceFormApply() async {
     final speech = _voiceFormBridge.takeFinalReviewAndArmIfReady();
     if (speech != null && speech.trim().isNotEmpty) {
-      await speak(speech);
+      await speak(speech, allowRepeat: true);
+    }
+    if (_voiceFormBridge.rabbitCreateRouteOpen ||
+        _voiceFormBridge.isAwaitingFinalConfirmation) {
+      await startListenSession();
     }
   }
 
@@ -386,11 +480,28 @@ class VoiceViewModel extends ChangeNotifier {
   Future<void> _handleRabbitCreateFinalVoice(String lower) async {
     if (!_voiceFormBridge.isAwaitingFinalConfirmation) return;
 
+    // Corrección transversal también desde CONFIRMING (antes de sí/cancelar).
+    final correctionPlan = _voiceController.prepare(
+      lower,
+      shellTabIndex: _currentTabIndex,
+      rabbitFormSnapshot: _voiceFormBridge.readRabbitCreateSnapshot(),
+    );
+    if (correctionPlan.correctFormField != null) {
+      _voiceFormBridge.beginVoiceCorrection(correctionPlan.correctFormField!);
+      await _speakThenMaybeRelisten(
+        correctionPlan.speech,
+        shouldRestartListening: true,
+        allowRepeat: true,
+      );
+      return;
+    }
+
     if (_isRabbitFormFinalConfirm(lower)) {
       final form = _voiceFormBridge.rabbitFormController;
       if (form == null || !form.readyForFinalVoiceConfirmation) {
         _voiceFormBridge.clearAwaitingFinalConfirmation();
-        await speak('El formulario ya no está listo. Completa los datos de nuevo.');
+        await speak(
+            'El formulario ya no está listo. Completa los datos de nuevo.');
         return;
       }
 
@@ -470,13 +581,20 @@ class VoiceViewModel extends ChangeNotifier {
             WidgetsBinding.instance.addPostFrameCallback((_) => open());
           }
           break;
+        case VoiceEffectType.cancelCreateRabbitForm:
+          await _voice.stopListening();
+          await _voice.stopSpeaking();
+          await hardResetVoiceState();
+          await navigateToRabbitListScreen();
+          await clearVoiceFormBridge();
+          break;
       }
     }
   }
 
   Future<void> _applyRabbitVoiceCrud(VoiceOrchestrationResult plan) async {
     if (plan.pendingDelete != null) {
-      _pendingDeleteRabbitId = plan.pendingDelete!.rabbitId;
+      _pendingDeleteRabbitUuid = plan.pendingDelete!.rabbitUuid;
       _pendingDeleteDisplayName = plan.pendingDelete!.displayName;
       notifyListeners();
       return;
@@ -486,7 +604,7 @@ class VoiceViewModel extends ChangeNotifier {
     if (u != null) {
       final s = u.snapshot;
       final ok = await _rabbits.updateRabbit(
-        id: s.id,
+        uuid: s.uuid,
         name: s.name,
         breed: s.breed,
         sex: s.sex,
@@ -503,16 +621,28 @@ class VoiceViewModel extends ChangeNotifier {
     }
   }
 
-  /// Flujo: texto STT → [VoiceController] → efectos → TTS.
+  /// Flujo: texto STT → [VoiceController] → efectos → TTS → STT opcional.
   Future<void> handleVoiceInput(String text) async {
     final trimmed = text.trim();
+    final snap = _voiceFormBridge.readRabbitCreateSnapshot();
     if (trimmed.isEmpty) {
+      if (snap.routeOpen) {
+        final plan = _voiceController.prepare(
+          trimmed,
+          shellTabIndex: _currentTabIndex,
+          rabbitFormSnapshot: snap,
+        );
+        await _speakThenMaybeRelisten(
+          plan.speech,
+          shouldRestartListening: plan.shouldRestartListening,
+        );
+      }
       return;
     }
 
     final lower = trimmed.toLowerCase();
 
-    if (_pendingDeleteRabbitId != null) {
+    if (_pendingDeleteRabbitUuid != null) {
       if (_isVoiceConfirmPhrase(lower)) {
         await _handlePendingDeleteConfirm();
         return;
@@ -558,7 +688,7 @@ class VoiceViewModel extends ChangeNotifier {
       );
       lastCommand = _voiceController.lastParsedCommand;
 
-      if (_pendingDeleteRabbitId != null &&
+      if (_pendingDeleteRabbitUuid != null &&
           lastCommand != null &&
           lastCommand != VoiceCommand.deleteRabbitRequest) {
         _clearPendingDelete();
@@ -567,6 +697,10 @@ class VoiceViewModel extends ChangeNotifier {
       notifyListeners();
 
       await _applyVoiceEffects(plan.effects);
+
+      if (plan.correctFormField != null) {
+        _voiceFormBridge.beginVoiceCorrection(plan.correctFormField!);
+      }
 
       final toSpeak = plan.deferredSpeech
           ? _voiceController.finishDeferredSpeech()
@@ -577,12 +711,11 @@ class VoiceViewModel extends ChangeNotifier {
         _lastCommandTime = DateTime.now();
       }
 
-      if (toSpeak != null && toSpeak.trim().isNotEmpty) {
-        await speak(toSpeak);
-      }
-
       final fills = plan.rabbitCreateFormFills;
       if (fills != null && fills.isNotEmpty) {
+        if (toSpeak != null && toSpeak.trim().isNotEmpty) {
+          await speak(toSpeak, allowRepeat: true);
+        }
         if (fills.length > 1) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _voiceFormBridge.applyRabbitCreateAssignments(fills);
@@ -593,6 +726,11 @@ class VoiceViewModel extends ChangeNotifier {
             unawaited(_applySingleFillGuidance(fills));
           });
         }
+      } else {
+        await _speakThenMaybeRelisten(
+          toSpeak,
+          shouldRestartListening: plan.shouldRestartListening,
+        );
       }
 
       await _applyRabbitVoiceCrud(plan);
@@ -618,7 +756,10 @@ class VoiceViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _hardwareVoiceTrigger.onTrigger = null;
+    _hardwareVoiceTrigger.stop();
     _voice.onSpeechStatus = null;
+    _voice.onSpeechError = null;
     super.dispose();
   }
 }

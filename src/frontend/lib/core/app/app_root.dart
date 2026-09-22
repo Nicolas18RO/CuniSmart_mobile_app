@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../viewmodels/auth_viewmodel.dart';
+import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../views/auth/biometric_lock_screen.dart';
 
 /// Root that runs bootstrap once and then shows Home or Auth.
@@ -38,6 +39,10 @@ class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     context.read<AuthViewModel>().handleAppLifecycle(state);
+    if (state == AppLifecycleState.resumed &&
+        context.read<AuthViewModel>().gate == AuthGate.app) {
+      context.read<RabbitViewModel>().loadRabbits();
+    }
   }
 
   Future<void> _register({

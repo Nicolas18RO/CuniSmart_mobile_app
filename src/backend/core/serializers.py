@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .exceptions import VersionConflict
 from .models import Rabbit, SensorDevice, SensorReading
 
 
@@ -8,6 +9,8 @@ class RabbitSerializer(serializers.ModelSerializer):
         model = Rabbit
         fields = [
             "id",
+            "uuid",
+            "user",
             "name",
             "breed",
             "sex",
@@ -15,9 +18,39 @@ class RabbitSerializer(serializers.ModelSerializer):
             "weight",
             "status",
             "notes",
+            "version",
+            "deleted_at",
             "created_at",
             "updated_at",
         ]
+        read_only_fields = [
+            "id",
+            "user",
+            "deleted_at",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "uuid": {"required": False},
+            "version": {"required": False},
+        }
+
+    def create(self, validated_data):
+        validated_data.pop("version", None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop("uuid", None)
+        incoming = validated_data.pop("version", None)
+        if incoming is not None and incoming != instance.version:
+            raise VersionConflict(current=RabbitSerializer(instance).data)
+        validated_data["version"] = instance.version + 1
+        return super().update(instance, validated_data)
+
+    def validate_weight(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("El peso no puede ser negativo.")
+        return value
 
 
 def _default_legacy_combined_device() -> SensorDevice:

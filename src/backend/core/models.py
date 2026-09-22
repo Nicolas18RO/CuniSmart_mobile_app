@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.db import models
+import uuid
 
 
 class Rabbit(models.Model):
@@ -11,6 +13,12 @@ class Rabbit(models.Model):
         SOLD = "sold", "Sold"
         DECEASED = "deceased", "Deceased"
 
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="rabbits",
+    )
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True)
     name = models.CharField(max_length=120)
     breed = models.CharField(max_length=120)
     sex = models.CharField(max_length=10, choices=Sex.choices)
@@ -23,6 +31,8 @@ class Rabbit(models.Model):
         default=Status.ACTIVE,
     )
     notes = models.TextField(blank=True)
+    version = models.PositiveIntegerField(default=1)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1,16 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/errors/api_exception.dart';
 import '../core/state/async_view_state.dart';
 import '../core/state/submit_state.dart';
 import '../models/rabbit.dart';
+import '../models/rabbit_qr.dart';
 import '../services/rabbit_service.dart';
 
 /// MVVM: rabbit list + create flow with standardized async + submit states.
 class RabbitViewModel extends ChangeNotifier {
-  RabbitViewModel(this._rabbitService);
+  RabbitViewModel(this._rabbitService, {Stream<bool>? onlineChanges}) {
+    _onlineSub = onlineChanges?.listen((online) {
+      if (online) loadRabbits();
+    });
+  }
 
   final RabbitService _rabbitService;
+  StreamSubscription<bool>? _onlineSub;
 
   AsyncViewState<List<Rabbit>> _listState = const AsyncInitial<List<Rabbit>>();
   SubmitState _submitState = const SubmitIdle();
@@ -61,10 +69,17 @@ class RabbitViewModel extends ChangeNotifier {
     if (_listLoadInFlight) return;
     _listLoadInFlight = true;
 
+    final local = await _rabbitService.readLocalRabbits();
+    if (local.isNotEmpty) {
+      _hasLoadedSuccessfully = true;
+      _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(local);
+    }
+
     _listState = AsyncLoading<List<Rabbit>>(cachedData: _cacheForLoading());
     notifyListeners();
 
     try {
+      await _rabbitService.syncPending();
       final list = await _rabbitService.fetchRabbits();
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
@@ -82,6 +97,39 @@ class RabbitViewModel extends ChangeNotifier {
     } finally {
       _listLoadInFlight = false;
       notifyListeners();
+    }
+  }
+
+  Future<Rabbit?> loadRabbitDetail(String uuid) async {
+    try {
+      return await _rabbitService.fetchRabbit(uuid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resolve a scanned QR to a rabbit (local first, then API if online).
+  Future<Rabbit?> lookupFromQr(String raw) async {
+    final uuid = RabbitQr.parseUuid(raw);
+    if (uuid == null) {
+      _submitState = const SubmitFailed('Este código no es de CuniSmart');
+      notifyListeners();
+      return null;
+    }
+    if (_submitState is SubmitInProgress) return null;
+
+    _submitState = const SubmitInProgress();
+    notifyListeners();
+
+    try {
+      final rabbit = await _rabbitService.lookupByUuid(uuid);
+      _submitState = const SubmitIdle();
+      notifyListeners();
+      return rabbit;
+    } catch (e) {
+      _submitState = SubmitFailed(_formatError(e));
+      notifyListeners();
+      return null;
     }
   }
 
@@ -110,7 +158,7 @@ class RabbitViewModel extends ChangeNotifier {
         status: status,
         notes: notes,
       );
-      final list = await _rabbitService.fetchRabbits();
+      final list = await _rabbitService.readLocalRabbits();
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -126,7 +174,7 @@ class RabbitViewModel extends ChangeNotifier {
 
   /// Update rabbit, refresh list on success. Prevents overlapping submits.
   Future<bool> updateRabbit({
-    required int id,
+    required String uuid,
     required String name,
     required String breed,
     required String sex,
@@ -142,7 +190,7 @@ class RabbitViewModel extends ChangeNotifier {
 
     try {
       await _rabbitService.updateRabbit(
-        id: id,
+        uuid: uuid,
         name: name,
         breed: breed,
         sex: sex,
@@ -151,7 +199,7 @@ class RabbitViewModel extends ChangeNotifier {
         status: status,
         notes: notes,
       );
-      final list = await _rabbitService.fetchRabbits();
+      final list = await _rabbitService.readLocalRabbits();
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -165,16 +213,60 @@ class RabbitViewModel extends ChangeNotifier {
     }
   }
 
+  /// Keep the remote snapshot and clear CONFLICT.
+  Future<Rabbit?> resolveConflictKeepRemote(String uuid) async {
+    return _resolveConflict(
+      uuid,
+      () => _rabbitService.resolveConflictKeepRemote(uuid),
+    );
+  }
+
+  /// Retry local fields using the remote version.
+  Future<Rabbit?> resolveConflictKeepLocal(String uuid) async {
+    return _resolveConflict(
+      uuid,
+      () => _rabbitService.resolveConflictKeepLocal(uuid),
+    );
+  }
+
+  Future<Rabbit?> _resolveConflict(
+    String uuid,
+    Future<void> Function() action,
+  ) async {
+    if (_submitState is SubmitInProgress) return null;
+
+    _submitState = const SubmitInProgress();
+    notifyListeners();
+
+    try {
+      await action();
+      final list = await _rabbitService.readLocalRabbits();
+      _hasLoadedSuccessfully = true;
+      _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
+      _listState = AsyncSuccess<List<Rabbit>>(list);
+      _submitState = const SubmitIdle();
+      notifyListeners();
+      for (final rabbit in list) {
+        if (rabbit.uuid == uuid) return rabbit;
+      }
+      return null;
+    } catch (e) {
+      _submitState = SubmitFailed(_formatError(e));
+      notifyListeners();
+      return null;
+    }
+  }
+
   /// Delete rabbit, refresh list on success. Prevents overlapping submits.
-  Future<bool> deleteRabbit(int id) async {
+  Future<bool> deleteRabbit(String uuid) async {
     if (_submitState is SubmitInProgress) return false;
 
     _submitState = const SubmitInProgress();
     notifyListeners();
 
     try {
-      await _rabbitService.deleteRabbit(id);
-      final list = await _rabbitService.fetchRabbits();
+      await _rabbitService.deleteRabbit(uuid);
+      final list = await _rabbitService.readLocalRabbits();
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -193,5 +285,11 @@ class RabbitViewModel extends ChangeNotifier {
       _submitState = const SubmitIdle();
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _onlineSub?.cancel();
+    super.dispose();
   }
 }

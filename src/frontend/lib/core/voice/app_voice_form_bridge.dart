@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../viewmodels/rabbit_create_form_voice_controller.dart';
 import '../../voice/form/rabbit_create_voice_form_snapshot.dart';
+import '../../voice/form/voice_form_field.dart';
 import '../../voice/form/voice_form_field_assignment.dart';
 
 /// Referencia al formulario de creación abierto (registrado por la pantalla).
@@ -95,6 +96,13 @@ class AppVoiceFormBridge extends ChangeNotifier {
   void hardReset() {
     _awaitingFinalConfirmation = false;
     _rabbitCreate?.clearVoiceFormForNewRabbit();
+    notifyListeners();
+  }
+
+  /// Corrección local de un campo del alta (no API).
+  void beginVoiceCorrection(VoiceFormField field) {
+    _awaitingFinalConfirmation = false;
+    _rabbitCreate?.beginVoiceCorrection(field);
     notifyListeners();
   }
 

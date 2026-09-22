@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>CuniSmart usa Face ID para desbloquear la sesión guardada de forma segura.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>CuniSmart usa la cámara para leer el código QR del conejo.</string>
 </dict>
 </plist>

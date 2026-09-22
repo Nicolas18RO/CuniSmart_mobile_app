@@ -6,6 +6,14 @@ import 'voice_form_field_assignment.dart';
 class RabbitCreateVoiceFormParser {
   const RabbitCreateVoiceFormParser();
 
+  /// Solo tests: fija “hoy” local. Producción usa [DateTime.now].
+  static DateTime? debugTodayOverride;
+
+  static DateTime _todayLocal() {
+    final n = debugTodayOverride ?? DateTime.now();
+    return DateTime(n.year, n.month, n.day);
+  }
+
   static final _noise = RegExp(r'[^\p{L}\p{N}\s.,/-]+', unicode: true);
 
   /// Frases que no son datos del formulario (evita asignar "la siguiente pregunta" a la raza).
@@ -13,7 +21,7 @@ class RabbitCreateVoiceFormParser {
     final n = _norm(phrase);
     if (n.isEmpty) return true;
     return RegExp(
-      r'\b(cuál|cual|qué|pregunta|preguntas|siguiente|ayuda|instrucciones|'
+      r'\b(cuál|cual|qué|pregunta|preguntas|siguiente|instrucciones|'
       r'no\s+sé|no\s+se|no\s+entiendo|explica|explicar)\b',
       caseSensitive: false,
     ).hasMatch(n);
@@ -230,14 +238,10 @@ class RabbitCreateVoiceFormParser {
     if (RegExp(r'^sin\s+peso$').hasMatch(lower)) {
       return const [VoiceFormFieldAssignment(VoiceFormField.weight, '')];
     }
-    final wOnly = RegExp(r'^(\d+[.,]\d+|\d+)\s*(?:kg|kilos|kilogramos)?$')
-        .firstMatch(lower);
-    if (wOnly != null && snap.weightEmpty) {
+    final wFlex = _parseWeightFlexible(lower);
+    if (wFlex != null && snap.weightEmpty) {
       return [
-        VoiceFormFieldAssignment(
-          VoiceFormField.weight,
-          wOnly.group(1)!.replaceAll(',', '.'),
-        ),
+        VoiceFormFieldAssignment(VoiceFormField.weight, wFlex),
       ];
     }
 
@@ -301,26 +305,13 @@ class RabbitCreateVoiceFormParser {
         if (RegExp(r'^sin\s+peso$').hasMatch(lower)) {
           return const [VoiceFormFieldAssignment(VoiceFormField.weight, '')];
         }
-        final wOnly = RegExp(
-              r'^(\d+[.,]\d+|\d+)\s*(?:kg|kilos|kilogramos)?$',
-            )
-            .firstMatch(lower);
-        if (wOnly != null) {
-          return [
-            VoiceFormFieldAssignment(
-              VoiceFormField.weight,
-              wOnly.group(1)!.replaceAll(',', '.'),
-            ),
-          ];
+        if (RegExp(r'\b(gramos?|\bg\b)\b').hasMatch(lower) &&
+            !RegExp(r'\b(kg|kilos|kilogramos)\b').hasMatch(lower)) {
+          return const [];
         }
-        final loose = RegExp(r'^(\d+[.,]\d+|\d+)$').firstMatch(lower);
-        if (loose != null) {
-          return [
-            VoiceFormFieldAssignment(
-              VoiceFormField.weight,
-              loose.group(1)!.replaceAll(',', '.'),
-            ),
-          ];
+        final w = _parseWeightFlexible(lower);
+        if (w != null) {
+          return [VoiceFormFieldAssignment(VoiceFormField.weight, w)];
         }
         return const [];
       case VoiceFormField.status:
@@ -384,6 +375,9 @@ class RabbitCreateVoiceFormParser {
     return 'active';
   }
 
+  static String? _fmtYmdFromDate(DateTime d) =>
+      _fmtYmd(d.year, d.month, d.day);
+
   static String? _fmtYmd(int? y, int? m, int? d) {
     if (y == null || m == null || d == null) return null;
     if (m < 1 || m > 12 || d < 1 || d > 31) return null;
@@ -409,23 +403,166 @@ class RabbitCreateVoiceFormParser {
       'noviembre': 11,
       'diciembre': 12,
     };
-    return map[token];
+    return map[_stripAccents(token)];
+  }
+
+  static String _stripAccents(String s) {
+    const from = 'áéíóúüñ';
+    const to = 'aeiouun';
+    final b = StringBuffer();
+    for (final c in s.split('')) {
+      final i = from.indexOf(c);
+      b.write(i >= 0 ? to[i] : c);
+    }
+    return b.toString();
+  }
+
+  /// Normaliza para fecha: minúsculas ya aplicadas, quita tildes, `del`→`de`.
+  static String _prepareDatePhrase(String n) {
+    var s = _stripAccents(n.trim());
+    s = s.replaceAll(RegExp(r'\bdel\b'), 'de');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return s;
+  }
+
+  static int? _parseCardinal0to99(String raw) {
+    final t = _stripAccents(raw.trim());
+    final asInt = int.tryParse(t);
+    if (asInt != null && asInt >= 0 && asInt <= 99) return asInt;
+
+    const map = <String, int>{
+      'cero': 0,
+      'uno': 1,
+      'una': 1,
+      'dos': 2,
+      'tres': 3,
+      'cuatro': 4,
+      'cinco': 5,
+      'seis': 6,
+      'siete': 7,
+      'ocho': 8,
+      'nueve': 9,
+      'diez': 10,
+      'once': 11,
+      'doce': 12,
+      'trece': 13,
+      'catorce': 14,
+      'quince': 15,
+      'dieciseis': 16,
+      'diecisiete': 17,
+      'dieciocho': 18,
+      'diecinueve': 19,
+      'veinte': 20,
+      'veintiuno': 21,
+      'veintiuna': 21,
+      'veintidos': 22,
+      'veintitres': 23,
+      'veinticuatro': 24,
+      'veinticinco': 25,
+      'veintiseis': 26,
+      'veintisiete': 27,
+      'veintiocho': 28,
+      'veintinueve': 29,
+      'treinta': 30,
+      'treinta y uno': 31,
+      'treinta y una': 31,
+    };
+    // Longest keys first.
+    final keys = map.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    for (final k in keys) {
+      if (t == k) return map[k];
+    }
+    // "veinti dos" style rare STT splits
+    final veinti = RegExp(r'^veinti\s*(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)$')
+        .firstMatch(t);
+    if (veinti != null) {
+      final u = _parseCardinal0to99(veinti.group(1)!);
+      if (u != null) return 20 + u;
+    }
+    final treintaY = RegExp(r'^treinta\s+y\s+(uno|una)$').firstMatch(t);
+    if (treintaY != null) return 31;
+    return null;
+  }
+
+  static int? _parseDayToken(String raw) {
+    final n = _parseCardinal0to99(raw);
+    if (n == null || n < 1 || n > 31) return null;
+    return n;
+  }
+
+  /// Extrae kg como string numérico (`15`, `2.5`). `null` = no reconocido.
+  static String? _parseWeightFlexible(String lower) {
+    var s = _stripAccents(lower.trim());
+    s = s.replaceFirst(RegExp(r'^(el\s+)?peso\s+(es\s+)?'), '');
+    s = s.replaceFirst(RegExp(r'\s*(kg|kilos|kilogramos)\s*$'), '').trim();
+    if (s.isEmpty) return null;
+
+    final digit = RegExp(r'^(\d+[.,]\d+|\d+)$').firstMatch(s);
+    if (digit != null) {
+      return digit.group(1)!.replaceAll(',', '.');
+    }
+
+    final decimal = RegExp(r'^(.+?)\s+(punto|coma)\s+(.+)$').firstMatch(s);
+    if (decimal != null) {
+      final whole = _parseCardinal0to99(decimal.group(1)!);
+      final frac = _parseCardinal0to99(decimal.group(3)!);
+      if (whole != null && frac != null && frac >= 0) {
+        return '$whole.$frac';
+      }
+    }
+
+    final spoken = _parseCardinal0to99(s);
+    if (spoken != null) return spoken.toString();
+    return null;
+  }
+
+  static int? _parseYearToken(String raw) {
+    final t = _stripAccents(raw.trim());
+    final asInt = int.tryParse(t);
+    if (asInt != null) return asInt;
+    if (t == 'dos mil') return 2000;
+    if (t.startsWith('dos mil ')) {
+      final rest = t.substring('dos mil '.length).trim().replaceFirst(
+            RegExp(r'^y\s+'),
+            '',
+          );
+      final n = _parseCardinal0to99(rest);
+      if (n != null && n >= 0 && n <= 99) return 2000 + n;
+    }
+    return null;
   }
 
   static String? _parseBirthDateFlexible(String n) {
     if (n.isEmpty) return null;
-    final natural = RegExp(
-      r'^(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})$',
-      unicode: true,
-    ).firstMatch(n);
-    if (natural != null) {
-      final day = int.tryParse(natural.group(1)!);
-      final mon = _monthFromSpanish(natural.group(2)!);
-      return _fmtYmd(int.tryParse(natural.group(3)!), mon, day);
+    final s = _prepareDatePhrase(n);
+
+    // Relativas (solo fecha local, sin hora).
+    if (s == 'hoy') {
+      return _fmtYmdFromDate(_todayLocal());
     }
+    if (s == 'ayer') {
+      return _fmtYmdFromDate(_todayLocal().subtract(const Duration(days: 1)));
+    }
+    if (s == 'antier' || s == 'antes de ayer' || s == 'anteayer') {
+      return _fmtYmdFromDate(_todayLocal().subtract(const Duration(days: 2)));
+    }
+
+    // "25 de septiembre de 2026" | "veinticinco de septiembre de dos mil veintiseis"
+    final natural = RegExp(
+      r'^(.+?)\s+de\s+([a-zñ]+)\s+de\s+(.+)$',
+    ).firstMatch(s);
+    if (natural != null) {
+      final day = _parseDayToken(natural.group(1)!);
+      final mon = _monthFromSpanish(natural.group(2)!);
+      final year = _parseYearToken(natural.group(3)!);
+      final iso = _fmtYmd(year, mon, day);
+      if (iso != null) return iso;
+    }
+
     final ymd = RegExp(
       r'^(\d{4})[\s/-]+(\d{1,2})[\s/-]+(\d{1,2})$',
-    ).firstMatch(n);
+    ).firstMatch(s);
     if (ymd != null) {
       return _fmtYmd(
         int.tryParse(ymd.group(1)!),
@@ -435,7 +572,7 @@ class RabbitCreateVoiceFormParser {
     }
     final dmy = RegExp(
       r'^(\d{1,2})[\s/-]+(\d{1,2})[\s/-]+(\d{4})$',
-    ).firstMatch(n);
+    ).firstMatch(s);
     if (dmy != null) {
       return _fmtYmd(
         int.tryParse(dmy.group(3)!),
@@ -444,21 +581,19 @@ class RabbitCreateVoiceFormParser {
       );
     }
     final dayMonthYear = RegExp(
-      r'^(\d{1,2})\s+([a-záéíóúñ]+)\s+(\d{4})$',
-      unicode: true,
-    ).firstMatch(n);
-    if (dayMonthYear != null) {
+      r'^(.+?)\s+([a-zñ]+)\s+(.+)$',
+    ).firstMatch(s);
+    if (dayMonthYear != null &&
+        _monthFromSpanish(dayMonthYear.group(2)!) != null) {
+      final day = _parseDayToken(dayMonthYear.group(1)!);
       final mon = _monthFromSpanish(dayMonthYear.group(2)!);
-      return _fmtYmd(
-        int.tryParse(dayMonthYear.group(3)!),
-        mon,
-        int.tryParse(dayMonthYear.group(1)!),
-      );
+      final year = _parseYearToken(dayMonthYear.group(3)!);
+      final iso = _fmtYmd(year, mon, day);
+      if (iso != null) return iso;
     }
     final monthDayYear = RegExp(
-      r'^([a-záéíóúñ]+)\s+(\d{1,2})\s+(\d{4})$',
-      unicode: true,
-    ).firstMatch(n);
+      r'^([a-zñ]+)\s+(\d{1,2})\s+(\d{4})$',
+    ).firstMatch(s);
     if (monthDayYear != null) {
       final mon = _monthFromSpanish(monthDayYear.group(1)!);
       return _fmtYmd(

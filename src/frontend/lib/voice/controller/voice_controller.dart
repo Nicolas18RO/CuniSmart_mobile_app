@@ -47,97 +47,192 @@ class VoiceController {
   }) {
     _deferredIntentForSpeech = null;
     final trimmed = recognizedText.trim();
+    final snap = rabbitFormSnapshot;
+
+    if (snap != null && snap.routeOpen) {
+      return _prepareWhileFormOpen(trimmed, snap, shellTabIndex);
+    }
+
     if (trimmed.isEmpty) {
       lastParsedCommand = null;
       return const VoiceOrchestrationResult(effects: []);
-    }
-
-    final snap = rabbitFormSnapshot;
-    if (snap != null && snap.routeOpen) {
-      // Texto libre (nombre, raza, notas) suele contener «conejo» → el parser global
-      // puede clasificar listRabbits / otros intents y disparar navegación.
-      // Solo relleno del campo, sin VoiceIntentParser ni efectos shell.
-      final af = snap.activeVoiceField;
-      if (af == VoiceFormField.name ||
-          af == VoiceFormField.breed ||
-          af == VoiceFormField.notes) {
-        return _voiceFormFieldContinuation(trimmed, snap);
-      }
-      final pipe = _intentParser.parsePipeline(trimmed);
-      // Cualquier comando distinto de «crear/registrar/agregar conejo» (p. ej.
-      // viewRabbitInfo, listar, peso…) sale del modo formulario guiado.
-      if (pipe case VoicePipelineOk(:final command)) {
-        if (command != VoiceCommand.createRabbitVoiceForm) {
-          return _orchestratePipeline(pipe, shellTabIndex);
-        }
-      }
-      if (pipe case VoicePipelineOk(
-            :final intent,
-            :final command,
-          )
-          when command == VoiceCommand.createRabbitVoiceForm &&
-              intent is CreateRabbitVoiceFormIntent) {
-        lastParsedCommand = command;
-        return _planCreateRabbitVoiceForm(intent, shellTabIndex);
-      }
-      if (pipe case VoicePipelineBadSlot(:final message, :final command)) {
-        lastParsedCommand = command;
-        return VoiceOrchestrationResult(effects: const [], speech: message);
-      }
-      if (pipe case VoicePipelineUnknown()) {
-        if (RabbitCreateVoiceFormParser.isNonFormChatter(trimmed)) {
-          lastParsedCommand = null;
-          return const VoiceOrchestrationResult(
-            effects: [],
-            speech:
-                'Eso no es un dato del formulario. Sigue la indicación o di el valor pedido.',
-          );
-        }
-        final fills = RabbitCreateVoiceFormParser.parseContinuation(trimmed, snap);
-        if (fills.isEmpty) {
-          lastParsedCommand = null;
-          return const VoiceOrchestrationResult(
-            effects: [],
-            speech: 'No entendí. Repite o completa el campo.',
-          );
-        }
-        lastParsedCommand = null;
-        return VoiceOrchestrationResult(
-          effects: const [],
-          rabbitCreateFormFills: fills,
-        );
-      }
     }
 
     final pipe = _intentParser.parsePipeline(trimmed);
     return _orchestratePipeline(pipe, shellTabIndex);
   }
 
-  /// Sin [VoiceIntentParser]: solo parser de campos (paso notas u otros texto libre).
+  /// Formulario activo: controles transversales → campo → sin parser global de nav.
+  VoiceOrchestrationResult _prepareWhileFormOpen(
+    String trimmed,
+    RabbitCreateVoiceFormSnapshot snap,
+    int shellTabIndex,
+  ) {
+    if (trimmed.isEmpty) {
+      lastParsedCommand = null;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.emptySttWhileForm(),
+        shouldRestartListening: true,
+      );
+    }
+
+    final lower = trimmed.toLowerCase();
+
+    if (_isFormCancelPhrase(lower)) {
+      lastParsedCommand = null;
+      return const VoiceOrchestrationResult(
+        effects: [VoiceEffect(VoiceEffectType.cancelCreateRabbitForm)],
+        speech: 'Creación cancelada.',
+      );
+    }
+
+    if (_isFormRepeatPhrase(lower)) {
+      lastParsedCommand = null;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.promptForField(snap.activeVoiceField),
+        shouldRestartListening: true,
+      );
+    }
+
+    if (_isFormHelpPhrase(lower)) {
+      lastParsedCommand = null;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.helpForField(snap.activeVoiceField),
+        shouldRestartListening: true,
+      );
+    }
+
+    final correctionTarget = _parseCorrectionField(lower);
+    if (correctionTarget != null) {
+      lastParsedCommand = null;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.correctionPrompt(correctionTarget),
+        shouldRestartListening: true,
+        correctFormField: correctionTarget,
+      );
+    }
+
+    final pipe = _intentParser.parsePipeline(trimmed);
+
+    // «crear/registrar conejo …» con datos: se mantiene el flujo de ráfaga.
+    if (pipe case VoicePipelineOk(
+          :final intent,
+          :final command,
+        )
+        when command == VoiceCommand.createRabbitVoiceForm &&
+            intent is CreateRabbitVoiceFormIntent) {
+      lastParsedCommand = command;
+      return _planCreateRabbitVoiceForm(intent, shellTabIndex);
+    }
+
+    if (pipe case VoicePipelineBadSlot(:final message, :final command)) {
+      lastParsedCommand = command;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: message,
+        shouldRestartListening: true,
+      );
+    }
+
+    // Cualquier otro comando global (ver sensores, lista, etc.): contexto, sin nav.
+    if (pipe case VoicePipelineOk()) {
+      lastParsedCommand = null;
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.contextualBusyForField(
+          snap.activeVoiceField,
+        ),
+        shouldRestartListening: true,
+      );
+    }
+
+    return _voiceFormFieldContinuation(trimmed, snap);
+  }
+
+  static bool _isFormCancelPhrase(String lower) {
+    final s = lower.trim();
+    return s == 'cancelar' ||
+        s == 'cancela' ||
+        s == 'abortar' ||
+        s == 'salir del formulario' ||
+        s == 'cancelar creación' ||
+        s == 'cancelar creacion';
+  }
+
+  static bool _isFormRepeatPhrase(String lower) {
+    final s = lower.trim();
+    return s == 'repetir' ||
+        s == 'repítelo' ||
+        s == 'repitelo' ||
+        s == 'otra vez' ||
+        s == 'repite';
+  }
+
+  static bool _isFormHelpPhrase(String lower) {
+    final s = lower.trim();
+    return s == 'ayuda' ||
+        s == 'qué digo' ||
+        s == 'que digo' ||
+        s == 'qué debo decir' ||
+        s == 'que debo decir';
+  }
+
+  /// «corregir|cambiar|modificar …» → campo del alta (solo creación local).
+  static VoiceFormField? _parseCorrectionField(String lower) {
+    final s = lower.trim();
+    final m = RegExp(
+      r'^(?:quiero\s+)?(?:corregir|cambiar|cambia|modificar|modifica)\s+'
+      r'(?:la\s+|el\s+)?'
+      r'(nombre|raza|sexo|fecha(?:\s+de\s+nacimiento)?|peso|estado|notas)\s*$',
+    ).firstMatch(s);
+    if (m == null) return null;
+    final raw = m.group(1)!;
+    if (raw.startsWith('fecha')) return VoiceFormField.birthDate;
+    return switch (raw) {
+      'nombre' => VoiceFormField.name,
+      'raza' => VoiceFormField.breed,
+      'sexo' => VoiceFormField.sex,
+      'peso' => VoiceFormField.weight,
+      'estado' => VoiceFormField.status,
+      'notas' => VoiceFormField.notes,
+      _ => null,
+    };
+  }
+
+  /// Solo parser de campos (todos los ASKING_*); sin efectos shell.
   VoiceOrchestrationResult _voiceFormFieldContinuation(
     String trimmed,
     RabbitCreateVoiceFormSnapshot snap,
   ) {
     if (RabbitCreateVoiceFormParser.isNonFormChatter(trimmed)) {
       lastParsedCommand = null;
-      return const VoiceOrchestrationResult(
-        effects: [],
-        speech:
-            'Eso no es un dato del formulario. Sigue la indicación o di el valor pedido.',
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.helpForField(snap.activeVoiceField),
+        shouldRestartListening: true,
       );
     }
     final fills = RabbitCreateVoiceFormParser.parseContinuation(trimmed, snap);
     if (fills.isEmpty) {
       lastParsedCommand = null;
-      final hint = snap.activeVoiceField == VoiceFormField.notes
-          ? 'No entendí. Di tus notas o di sin notas.'
-          : 'No entendí. Repite o completa el campo.';
-      return VoiceOrchestrationResult(effects: const [], speech: hint);
+      return VoiceOrchestrationResult(
+        effects: const [],
+        speech: RabbitCreateVoiceFormGuidance.unrecognizedForField(
+          snap.activeVoiceField,
+        ),
+        shouldRestartListening: true,
+      );
     }
     lastParsedCommand = null;
     return VoiceOrchestrationResult(
       effects: const [],
       rabbitCreateFormFills: fills,
+      // Tras confirmar un campo, el VM habla la guía y debe volver a escuchar.
+      shouldRestartListening: true,
     );
   }
 
@@ -195,6 +290,7 @@ class VoiceController {
       effects: effects,
       speech: speech,
       rabbitCreateFormFills: fills.isEmpty ? null : fills,
+      shouldRestartListening: true,
     );
   }
 
@@ -269,6 +365,7 @@ class VoiceController {
               ? null
               : VoicePendingDelete(
                   rabbitId: rabbit.id,
+                  rabbitUuid: rabbit.uuid,
                   displayName: rabbit.name,
                 ),
         );

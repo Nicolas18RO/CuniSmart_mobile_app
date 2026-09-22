@@ -4,11 +4,12 @@ AGENTS: Update this file after every major milestone, structural change, or reso
 -->
 
 ## 🏗️ Active Phase & Goal
-**Current phase:** R1.6.5 validación automatizada **PASS**. R1 **no cerrado**: falta TalkBack en dispositivo y biometría física.
+**Current phase:** Voice Fix Cycle — **impl cerrado**. Suite voz **81/81**. Volume **Up** long-press; corrección desde CONFIRMING; hoy/ayer/antier + TTS natural.
+**Artefactos:** `VOICE_CORRECTION_DATE_BUTTON_{AUDIT,TDD,IMPLEMENTATION}.md`
 **Next steps (priority):**
-1. Recorreo manual en emulador + TalkBack (checklist en `docs/reviews/R1_6_5_VALIDACION.md`)
-2. Biometría en teléfono físico (opt-in Seguridad; no enviar muestras)
-3. R2+: `IsAuthenticated` + FK `user` en Rabbit
+1. Validación física checklist (Vol↑, corregir en confirmación, fechas relativas) en Android.
+2. Si Vol↑ no responde en un OEM → FAB.
+
 
 ## 📂 Architectural Decisions
 - **Stack:** Flutter + Django REST + PostgreSQL (`src/frontend/`, `src/backend/`).
@@ -17,13 +18,13 @@ AGENTS: Update this file after every major milestone, structural change, or reso
 - **IoT (current):** `SensorDevice` + `SensorReading`; dev data via `simulate_sensor_readings`; client polls API every 4s.
 - **Alerts (current):** UI-only heuristics in `iot_dashboard_view.dart` — not backend push, not TTS on alert.
 - **Chatbot:** `POST /api/chatbot/` → Gemini (`google-genai`); no auth on endpoint (dev risk).
-- **PRD offline-first:** NOT implemented — all rabbit/sensor data is server-backed only.
+- **PRD offline-first:** Drift + cola + sync automático **sí** (R2.4–R2.6). Conflictos 409 con resolución de usuario **sí** (R2.7). QR local + escaneo **sí** (R2.8). Sensores siguen solo en servidor.
 
 ## 🐛 Known Issues & Quirks
 - `AGENTS.md` still says "templates only" — **false**; see `docs/CONTEXTO_MAESTRO.md`.
 - `docs/TechDesign-CuniSmart-MVP.md` is truncated; use `docs/README-TECNICO-CuniSmart.md` + code.
 - `widget_test.dart` ya no monta `CuniSmartApp` (R1.1). El fallo R1.0 (`notifyListeners` en `AppRoot.initState` + título Conejos) sigue si se bomba la app completa.
-- `Rabbit` model has no `user` FK — global farm data for all authenticated users.
+- `Rabbit.user` + `uuid` único + `version` + `deleted_at`. DELETE lógico. Drift: `rabbits` + `sync_operations`. CRUD offline si API ≥500/red. SyncEngine drena cola al iniciar lista, al volver a foreground, al recuperar red y al pulsar actualizar. CREATE reintenta por UUID (GET si POST 400). Editar un alta aún no subida **actualiza el CREATE** (no encola un segundo UPDATE). PUT/PATCH con `version` desfasada → HTTP 409 + snapshot; cola `CONFLICT` no se reintenta sola; ficha: conservar servidor o conservar cambios locales. QR `cunismart://rabbit/<uuid>` generado local; escaneo busca Drift y si falta GET (404 si no es del usuario); sin red avisa que no está local. Tras escanear, TTS de R1 lee la ficha. TalkBack: labels y orden de foco.
 - Hardcoded LAN IP in `app_config.dart` (backend public URL now from env).
 - Duplicate auth UI paths removed in R1.5; official tree is `features/auth` + `BiometricLockScreen`.
 
@@ -42,9 +43,19 @@ AGENTS: Update this file after every major milestone, structural change, or reso
 - [x] R1.4 biometría opt-in (`docs/reviews/R1_4_BIOMETRIC.md`)
 - [x] R1.6.5 validación automatizada (`docs/reviews/R1_6_5_VALIDACION.md`)
 - [x] CuniBot chat (Gemini)
-- [ ] Offline-first local DB + sync
+- [x] Offline-first local DB + sync
 - [ ] Alert audio / system notifications
-- [ ] Per-user data isolation
+- [x] R2.1 ownership API + migrate en `cunismart_db`
+- [x] Per-user data isolation on existing PostgreSQL rabbit rows
+- [x] R2.2 UUID / version / deleted_at + detalle por UUID
+- [x] R2.3 CRUD + ficha + eliminación lógica
+- [x] R2.4 Drift (tabla rabbits, persistencia, lectura local, sync_status)
+- [x] R2.5 CRUD offline + cola persistente
+- [x] R2.6 SyncEngine (conectividad, reintentos, idempotencia UUID)
+- [x] R2.7 conflictos (409, CONFLICT, snapshot, resolución en ficha)
+- [x] R2.8 QR (generación, escaneo, lookup UUID, ficha)
+- [x] R2.9 accesibilidad (TalkBack, orden de foco, TTS ficha/QR)
+- [x] R2.10 recorrido mínimo (offline, ficha, QR, persistir, sync)
 - [ ] Real IoT device integration
 
 ## 📎 Canonical context doc

@@ -6,8 +6,11 @@ import 'core/app/app_root.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/cuni_theme.dart';
 import 'core/voice/app_voice_form_bridge.dart';
+import 'data/local/app_database.dart';
 import 'services/auth_service.dart';
 import 'services/chatbot_service.dart';
+import 'services/connectivity_plus_gate.dart';
+import 'services/rabbit_local_store.dart';
 import 'services/rabbit_service.dart';
 import 'services/sensor_service.dart';
 import 'services/voice_command_parser.dart';
@@ -39,11 +42,14 @@ const bool kVoiceDebugBypassStt = false;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const CuniSmartApp());
+  final database = AppDatabase.fromDocuments();
+  runApp(CuniSmartApp(database: database));
 }
 
 class CuniSmartApp extends StatelessWidget {
-  const CuniSmartApp({super.key});
+  const CuniSmartApp({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +57,12 @@ class CuniSmartApp extends StatelessWidget {
     final authService = AuthService(apiClient: apiClient);
     apiClient.onTokenRefresh = authService.refreshFromStorage;
 
-    final rabbitService = RabbitService(apiClient);
+    final connectivity = ConnectivityPlusGate();
+    final rabbitService = RabbitService(
+      apiClient,
+      RabbitLocalStore(database),
+      connectivity: connectivity,
+    );
     final sensorService = SensorService(apiClient);
     final chatbotService = ChatbotService(apiClient);
 
@@ -68,7 +79,10 @@ class CuniSmartApp extends StatelessWidget {
         Provider<VoiceService>(create: (_) => VoiceService()),
         Provider<VoiceCommandParser>.value(value: const VoiceCommandParser()),
         ChangeNotifierProvider<RabbitViewModel>(
-          create: (_) => RabbitViewModel(rabbitService),
+          create: (_) => RabbitViewModel(
+            rabbitService,
+            onlineChanges: connectivity.onOnline,
+          ),
         ),
         ChangeNotifierProvider<SensorViewModel>(
           create: (_) => SensorViewModel(sensorService),

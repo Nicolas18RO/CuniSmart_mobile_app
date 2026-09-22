@@ -161,6 +161,13 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
         );
         return;
       }
+      if (weight < 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El peso no puede ser negativo')),
+        );
+        return;
+      }
     }
 
     vm.clearSubmitError();
@@ -177,7 +184,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
             notes: form.notes.text.trim(),
           )
         : await vm.updateRabbit(
-            id: editing.id,
+            uuid: editing.uuid,
             name: form.name.text.trim(),
             breed: form.breed.text.trim(),
             sex: form.sex,

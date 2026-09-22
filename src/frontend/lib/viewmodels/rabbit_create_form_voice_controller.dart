@@ -100,6 +100,38 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Prepara un campo para re-dictado por voz (solo estado local del borrador).
+  void beginVoiceCorrection(VoiceFormField field) {
+    switch (field) {
+      case VoiceFormField.name:
+        name.clear();
+        break;
+      case VoiceFormField.breed:
+        breed.clear();
+        break;
+      case VoiceFormField.sex:
+        _voiceSexExplicit = false;
+        sex = 'male';
+        break;
+      case VoiceFormField.birthDate:
+        birthDate.clear();
+        break;
+      case VoiceFormField.weight:
+        weight.clear();
+        _weightVoiceAddressed = false;
+        break;
+      case VoiceFormField.status:
+        _statusVoiceExplicit = false;
+        status = 'active';
+        break;
+      case VoiceFormField.notes:
+        notes.clear();
+        _notesVoiceExplicit = false;
+        break;
+    }
+    notifyListeners();
+  }
+
   void applyAssignments(List<VoiceFormFieldAssignment> items) {
     for (final a in items) {
       switch (a.field) {
@@ -189,7 +221,8 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
       return 'Indícame el sexo del conejo: macho o hembra. Macho es el valor por defecto.';
     }
     if (birthDate.text.trim().isEmpty) {
-      return '¿Cuál es la fecha de nacimiento del conejo? Puedes decir el día, mes y año.';
+      return '¿Cuál es la fecha de nacimiento del conejo? '
+          '${RabbitCreateVoiceFormGuidance.birthDateHelpCanonical()}';
     }
     if (!_weightVoiceAddressed) {
       return '¿Cuál es el peso en kilos? O di sin peso.';

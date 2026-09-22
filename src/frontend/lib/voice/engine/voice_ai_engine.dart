@@ -3,6 +3,7 @@ import '../../models/rabbit.dart';
 import '../../services/voice_commands.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../viewmodels/sensor_viewmodel.dart';
+import '../form/rabbit_create_voice_form_guidance.dart';
 import '../voice_speech_format.dart';
 
 /// Acción de navegación sugerida por el motor; la ejecuta la capa MVVM / UI.
@@ -47,7 +48,6 @@ final class LatestWeightsIntent extends VoiceIntent {
   LatestWeightsIntent([this.requestedLimit]);
   final int? requestedLimit;
 }
-
 
 final class ListRabbitsDetailedIntent extends VoiceIntent {
   ListRabbitsDetailedIntent();
@@ -123,12 +123,33 @@ class VoiceAIEngine {
     final notas = (notesPreview == null || notesPreview.isEmpty)
         ? 'sin notas'
         : 'notas: $notesPreview';
+    final birthSpoken =
+        RabbitCreateVoiceFormGuidance.formatYmdForSpeech(birthDateYmd);
     return 'Vas a crear el conejo $name, raza $breed, sexo $sexEs, nacido el '
-        '$birthDateYmd, estado $statusEs, peso $peso, $notas.';
+        '$birthSpoken, estado $statusEs, peso $peso, $notas.';
   }
 
   static String rabbitCreateFormConfirmationPrompt() =>
       '¿Confirmas la creación de este conejo? Di confirmar o cancelar.';
+
+  /// Oral ficha using R1 TTS. Order: name, breed, sex, date, weight, status, notes.
+  static String fichaSpeech(Rabbit rabbit) {
+    final sexEs = rabbit.sex == 'female' ? 'hembra' : 'macho';
+    final statusEs = switch (rabbit.status) {
+      'sold' => 'vendido',
+      'deceased' => 'fallecido',
+      _ => 'activo',
+    };
+    final peso = rabbit.weight == null
+        ? 'sin peso'
+        : '${VoiceSpeechFormat.kgComma(rabbit.weight!)} kilogramos';
+    final notas =
+        rabbit.notes.trim().isEmpty ? 'sin notas' : rabbit.notes.trim();
+    return '${rabbit.name}. Raza ${rabbit.breed}. Sexo $sexEs. '
+        'Nacido el ${RabbitCreateVoiceFormGuidance.formatYmdForSpeech(rabbit.birthDate)}. '
+        'Peso $peso. Estado $statusEs. '
+        'Observaciones: $notas.';
+  }
 
   VoiceAIResponse resolve(VoiceIntent intent) {
     return switch (intent) {
@@ -151,9 +172,8 @@ class VoiceAIEngine {
         VoiceAIResponse(textToSpeak: _deleteRequestSpeech(nameQuery)),
       CreateRabbitVoiceFormIntent(:final remainderAfterPrefix) =>
         VoiceAIResponse(
-          textToSpeak: remainderAfterPrefix.isEmpty
-              ? 'Dime el nombre del conejo'
-              : '',
+          textToSpeak:
+              remainderAfterPrefix.isEmpty ? 'Dime el nombre del conejo' : '',
         ),
       UpdateRabbitVoiceIntent(:final nameQuery, :final newWeight) =>
         VoiceAIResponse(
@@ -182,25 +202,7 @@ class VoiceAIEngine {
     if (r == null) {
       return 'No encontré un conejo con ese nombre.';
     }
-    final sexEs = r.sex == 'female' ? 'hembra' : 'macho';
-    final statusEs = switch (r.status) {
-      'sold' => 'vendido',
-      'deceased' => 'fallecido',
-      _ => 'activo',
-    };
-    final buf = StringBuffer(
-      '${r.name}. Raza ${r.breed}. Sexo $sexEs. Nacido el ${r.birthDate}. '
-      'Estado $statusEs.',
-    );
-    if (r.weight != null) {
-      buf.write(
-        ' Peso registrado ${VoiceSpeechFormat.kgComma(r.weight!)} kilogramos.',
-      );
-    }
-    if (r.notes.trim().isNotEmpty) {
-      buf.write(' Notas: ${r.notes.trim()}.');
-    }
-    return buf.toString();
+    return fichaSpeech(r);
   }
 
   String _updateRabbitVoiceSpeech(String nameQuery, double? newWeight) {
@@ -434,7 +436,8 @@ class VoiceAIEngine {
         (requestedLimit != null && requestedLimit > 0) ? requestedLimit : 3;
     final maxSlots = requested > 3 ? 3 : requested;
 
-    final latestByRabbit = <int, ({String name, double weight, String createdAt})>{};
+    final latestByRabbit =
+        <int, ({String name, double weight, String createdAt})>{};
     for (final e in _sensors.weightEvents) {
       final rid = e.rabbitId;
       if (rid == null) continue;

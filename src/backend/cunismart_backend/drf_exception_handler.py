@@ -20,6 +20,8 @@ from rest_framework.exceptions import (
 )
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from core.exceptions import VersionConflict
+
 
 def _detail_to_str(detail: Any) -> str:
     if detail is None:
@@ -55,6 +57,14 @@ def cunismart_exception_handler(exc: Exception, context: dict) -> Any:
         return None
 
     data = response.data
+
+    if isinstance(exc, VersionConflict):
+        response.data = {
+            "detail": "El conejo fue modificado en otro lugar.",
+            "code": "version_conflict",
+            "current": getattr(exc, "current", None),
+        }
+        return response
 
     if isinstance(data, dict) and "detail" in data and "code" in data:
         response.data = {

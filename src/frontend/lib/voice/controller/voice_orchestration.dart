@@ -1,4 +1,5 @@
 import '../../models/rabbit.dart';
+import '../form/voice_form_field.dart';
 import '../form/voice_form_field_assignment.dart';
 
 /// Efectos que el orquestador (ViewModel) ejecuta sin contener reglas de dominio.
@@ -9,23 +10,28 @@ enum VoiceEffectType {
   loadSensorReadings,
   startSensorPolling,
   openCreateRabbitScreen,
+  /// Cancela el alta por voz: limpiar bridge / salir del formulario (sin nav IoT).
+  cancelCreateRabbitForm,
 }
 
 class VoiceEffect {
-  const VoiceEffect(this.type, {this.tabIndex});
+  const VoiceEffect(this.type, {this.tabIndex, this.formField});
 
   final VoiceEffectType type;
   final int? tabIndex;
+  final VoiceFormField? formField;
 }
 
 /// Estado tras pedir borrado (confirmación obligatoria en [VoiceViewModel]).
 class VoicePendingDelete {
   const VoicePendingDelete({
     required this.rabbitId,
+    required this.rabbitUuid,
     required this.displayName,
   });
 
   final int rabbitId;
+  final String rabbitUuid;
   final String displayName;
 }
 
@@ -49,16 +55,18 @@ class VoiceOrchestrationResult {
     this.pendingDelete,
     this.rabbitCreateFormFills,
     this.updateByVoice,
+    this.shouldRestartListening = false,
+    this.correctFormField,
   });
 
   final List<VoiceEffect> effects;
   final String? speech;
-
-  /// Si es true, el texto final sale de [VoiceController.finishDeferredSpeech]
-  /// tras aplicar [effects] (p. ej. lista de conejos tras [loadRabbits]).
   final bool deferredSpeech;
-
   final VoicePendingDelete? pendingDelete;
   final List<VoiceFormFieldAssignment>? rabbitCreateFormFills;
   final VoiceUpdateByVoicePayload? updateByVoice;
+  final bool shouldRestartListening;
+
+  /// Salto local a un campo del alta (corrección); no implica API.
+  final VoiceFormField? correctFormField;
 }
