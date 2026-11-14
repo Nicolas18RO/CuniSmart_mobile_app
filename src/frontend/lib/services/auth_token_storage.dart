@@ -15,6 +15,8 @@ class AuthTokenStorage implements DeviceCredentialLocalStore {
         _memory = <String, String>{};
 
   static const String _refreshKey = 'cunismart_refresh_token';
+  static const String _authorizationKey = 'cunismart_offline_authorization';
+  static const String _refreshUncertainKey = 'cunismart_refresh_uncertain';
   static const String _credentialIdKey = 'cunismart_device_credential_id';
   static const String _userHintKey = 'cunismart_enrolled_user_hint';
 
@@ -24,6 +26,17 @@ class AuthTokenStorage implements DeviceCredentialLocalStore {
   Future<String?> readRefreshToken() async => _read(_refreshKey);
 
   Future<void> writeRefreshToken(String? value) => _write(_refreshKey, value);
+
+  Future<String?> readOfflineAuthorization() => _read(_authorizationKey);
+
+  Future<void> writeOfflineAuthorization(String? value) =>
+      _write(_authorizationKey, value);
+
+  Future<bool> readRefreshUncertain() async =>
+      await _read(_refreshUncertainKey) == 'true';
+
+  Future<void> writeRefreshUncertain(bool value) =>
+      _write(_refreshUncertainKey, value ? 'true' : null);
 
   @override
   Future<String?> readDeviceCredentialId() => _read(_credentialIdKey);

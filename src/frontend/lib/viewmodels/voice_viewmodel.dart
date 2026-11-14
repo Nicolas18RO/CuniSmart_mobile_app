@@ -8,11 +8,13 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../core/voice/app_voice_form_bridge.dart';
+import '../core/state/async_view_state.dart';
 import '../models/rabbit.dart';
 import '../services/voice_command_parser.dart';
 import '../services/voice_commands.dart';
 import '../services/voice_service.dart';
 import '../voice/controller/voice_controller.dart';
+import '../voice/engine/r3_voice_facade.dart';
 import '../voice/form/voice_form_field.dart';
 import '../voice/form/voice_form_field_assignment.dart';
 import '../voice/hardware/hardware_voice_trigger.dart';
@@ -31,6 +33,7 @@ class VoiceViewModel extends ChangeNotifier {
     this._rabbits,
     this._sensors,
     this._voiceFormBridge, {
+    R3VoiceFacade? r3VoiceFacade,
     VoidCallback? onRequestOpenCreateRabbitScreen,
     VoidCallback? onRequestPopToRoot,
     void Function(int index)? onChangeTab,
@@ -41,7 +44,8 @@ class VoiceViewModel extends ChangeNotifier {
         _onChangeTab = onChangeTab,
         _currentTabIndex = currentTabIndex,
         _hardwareVoiceTrigger =
-            hardwareVoiceTrigger ?? VolumeUpLongPressVoiceTrigger() {
+            hardwareVoiceTrigger ?? VolumeUpLongPressVoiceTrigger(),
+        _r3VoiceFacade = r3VoiceFacade {
     _voiceController = VoiceController(
       intentParser: VoiceIntentParser(voiceCommandParser),
       aiEngine: VoiceAIEngine(_rabbits, _sensors),
@@ -77,6 +81,7 @@ class VoiceViewModel extends ChangeNotifier {
   final VoidCallback? _onPopToRoot;
   final void Function(int index)? _onChangeTab;
   final HardwareVoiceTrigger _hardwareVoiceTrigger;
+  final R3VoiceFacade? _r3VoiceFacade;
 
   /// PoC / activación secundaria: long-press volumen abajo (fallback FAB siempre).
   HardwareVoiceTrigger get hardwareVoiceTrigger => _hardwareVoiceTrigger;
@@ -186,7 +191,8 @@ class VoiceViewModel extends ChangeNotifier {
       speech =
           'No tengo permiso de micrófono. Actívalo en ajustes e inténtalo de nuevo.';
     } else if (msg.contains('timeout') || msg.contains('network')) {
-      speech = 'Se agotó el tiempo de escucha. Pulsa el micrófono e inténtalo otra vez.';
+      speech =
+          'Se agotó el tiempo de escucha. Pulsa el micrófono e inténtalo otra vez.';
     } else if (msg.contains('busy') || msg.contains('recognizer')) {
       speech =
           'El micrófono no está disponible ahora. Espera un momento e inténtalo de nuevo.';
@@ -567,19 +573,20 @@ class VoiceViewModel extends ChangeNotifier {
           if (i != null) _onChangeTab?.call(i);
           break;
         case VoiceEffectType.loadRabbits:
-          await _rabbits.loadRabbits();
+          // La navegación y la confirmación de voz no dependen de esta carga.
+          // El ViewModel conserva el estado local mientras se actualiza.
+          unawaited(_rabbits.loadRabbits());
           break;
         case VoiceEffectType.loadSensorReadings:
-          await _sensors.loadSensorReadings();
+          // No bloquear la respuesta auditiva por una consulta de red.
+          unawaited(_sensors.loadSensorReadings());
           break;
         case VoiceEffectType.startSensorPolling:
           _sensors.startPolling();
           break;
         case VoiceEffectType.openCreateRabbitScreen:
           final open = _onOpenCreate;
-          if (open != null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => open());
-          }
+          open?.call();
           break;
         case VoiceEffectType.cancelCreateRabbitForm:
           await _voice.stopListening();
@@ -677,16 +684,47 @@ class VoiceViewModel extends ChangeNotifier {
       return;
     }
     _isProcessingCommand = true;
+    final commandClock = Stopwatch()..start();
+    if (!kReleaseMode) {
+      final normalized =
+          text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+      debugPrint(
+        '[VOICE][NORMALIZATION] original="$text" normalized="$normalized"',
+      );
+    }
+    final facade = _r3VoiceFacade;
+    if (facade != null) {
+      final answer = await facade.answer(text, _rabbitSnapshot());
+      if (answer != null) {
+        if (!kReleaseMode) {
+          debugPrint('[VOICE][DISPATCH] destination=R3VoiceFacade');
+          debugPrint('[VOICE][RESULT] response="$answer"');
+          debugPrint('VoiceTiming r3_ms=${commandClock.elapsedMilliseconds}');
+        }
+        await speak(answer, allowRepeat: true);
+        _isProcessingCommand = false;
+        return;
+      }
+    }
     notifyListeners();
 
     try {
       lastRecognitionText = text;
+      final parseClock = Stopwatch()..start();
       final plan = _voiceController.prepare(
         trimmed,
         shellTabIndex: _currentTabIndex,
         rabbitFormSnapshot: _voiceFormBridge.readRabbitCreateSnapshot(),
       );
       lastCommand = _voiceController.lastParsedCommand;
+      if (!kReleaseMode) {
+        debugPrint(
+            '[VOICE][PARSER] intent=${lastCommand ?? 'null'} state=${lastCommand == null ? 'UNKNOWN' : 'SUCCESS'}');
+        debugPrint(
+            '[VOICE][DISPATCH] command=${lastCommand ?? 'none'} destination=VoiceController');
+        debugPrint(
+            'VoiceTiming parse_dispatch_ms=${parseClock.elapsedMilliseconds}');
+      }
 
       if (_pendingDeleteRabbitUuid != null &&
           lastCommand != null &&
@@ -742,6 +780,16 @@ class VoiceViewModel extends ChangeNotifier {
       _isProcessingCommand = false;
       notifyListeners();
     }
+  }
+
+  List<Rabbit> _rabbitSnapshot() {
+    final state = _rabbits.listState;
+    return switch (state) {
+      AsyncSuccess<List<Rabbit>>(:final data) => data,
+      AsyncLoading<List<Rabbit>>(:final cachedData) => cachedData ?? const [],
+      AsyncError<List<Rabbit>>(:final cachedData) => cachedData ?? const [],
+      _ => const [],
+    };
   }
 
   /// Compatibilidad con llamadas existentes (mic / debug); delega en [handleVoiceInput].

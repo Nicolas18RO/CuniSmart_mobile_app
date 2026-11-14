@@ -1,6 +1,8 @@
 package com.example.frontend
 
 import android.security.keystore.KeyGenParameterSpec
+import android.os.SystemClock
+import android.provider.Settings
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -9,6 +11,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Signature
+import java.io.File
+import java.util.UUID
 
 class MainActivity : FlutterFragmentActivity() {
     private val channelName = "cunismart/device_credentials"
@@ -16,6 +20,27 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "cunismart/session_clock")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "read") {
+                    result.notImplemented()
+                } else {
+                    try {
+                        val bootCount = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT)
+                        val installationFile = File(noBackupFilesDir, "session_installation_id")
+                        if (!installationFile.exists()) {
+                            installationFile.writeText(UUID.randomUUID().toString())
+                        }
+                        result.success(mapOf(
+                            "bootCount" to bootCount,
+                            "elapsedMilliseconds" to SystemClock.elapsedRealtime(),
+                            "installationId" to UUID.fromString(installationFile.readText()).toString(),
+                        ))
+                    } catch (_: Exception) {
+                        result.success(null)
+                    }
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 try {

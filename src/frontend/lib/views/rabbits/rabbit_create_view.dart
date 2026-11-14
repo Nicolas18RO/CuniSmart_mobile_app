@@ -147,8 +147,36 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
     }
   }
 
-  Future<void> _submit(RabbitViewModel vm, RabbitCreateFormVoiceController form) async {
+  Future<void> _submit(
+      RabbitViewModel vm, RabbitCreateFormVoiceController form) async {
     if (!_formKey.currentState!.validate()) return;
+
+    final declaresFounder = form.genealogyKnowledge == 'FOUNDER' &&
+        widget.rabbit?.genealogyKnowledge != 'FOUNDER';
+    if (declaresFounder) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Confirmar fundador externo'),
+          content: const Text(
+            'Declara que este conejo fue adquirido fuera de la granja y se '
+            'considerará independiente de los demás fundadores registrados. '
+            'Es una hipótesis para el pedigrí, no una certeza biológica.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Sí, declarar fundador'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
 
     final weightText = form.weight.text.trim();
     double? weight;
@@ -182,6 +210,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
             weight: weight,
             status: form.status,
             notes: form.notes.text.trim(),
+            genealogyKnowledge: form.genealogyKnowledge,
           )
         : await vm.updateRabbit(
             uuid: editing.uuid,
@@ -192,6 +221,7 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
             weight: weight,
             status: form.status,
             notes: form.notes.text.trim(),
+            genealogyKnowledge: form.genealogyKnowledge,
           );
 
     if (!mounted) return;
@@ -270,6 +300,47 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                       : null,
                 ),
                 const SizedBox(height: _fieldGap),
+                Text('Origen genealógico',
+                    style: textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: form.genealogyKnowledge,
+                  decoration: _decoration(context, 'Procedencia *'),
+                  style: _fieldTextStyle(context),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'UNKNOWN', child: Text('Desconocido')),
+                    DropdownMenuItem(
+                        value: 'FOUNDER', child: Text('Fundador externo')),
+                    DropdownMenuItem(
+                      value: 'RECORDED',
+                      enabled: false,
+                      child: Text('Genealogía registrada'),
+                    ),
+                  ],
+                  onChanged: submitting
+                      ? null
+                      : (value) {
+                          if (value != null && value != 'RECORDED') {
+                            form.setGenealogyKnowledge(value);
+                          }
+                        },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  switch (form.genealogyKnowledge) {
+                    'FOUNDER' =>
+                      'Adquirido fuera de la granja y declarado independiente de los demás fundadores. Se usará como raíz del pedigrí.',
+                    'RECORDED' =>
+                      'Tiene padre y madre registrados. Este estado se administra desde Genealogía.',
+                    _ =>
+                      'No se conoce su procedencia. No se asumirá que sea independiente de otros animales.',
+                  },
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4),
+                ),
+                const SizedBox(height: _fieldGap),
                 TextFormField(
                   controller: form.breed,
                   enabled: !submitting,
@@ -287,9 +358,8 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                     DropdownMenuItem(value: 'male', child: Text('Macho')),
                     DropdownMenuItem(value: 'female', child: Text('Hembra')),
                   ],
-                  onChanged: submitting
-                      ? null
-                      : (v) => form.setSex(v ?? 'male'),
+                  onChanged:
+                      submitting ? null : (v) => form.setSex(v ?? 'male'),
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(
@@ -303,7 +373,8 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                     hint: 'Toca para elegir',
                     calendarSuffix: true,
                   ),
-                  onTap: submitting ? null : () => _pickBirthDate(context, form),
+                  onTap:
+                      submitting ? null : () => _pickBirthDate(context, form),
                   validator: (v) => v == null || v.trim().isEmpty
                       ? 'Elija la fecha de nacimiento'
                       : null,
@@ -332,9 +403,8 @@ class _RabbitCreateViewState extends State<RabbitCreateView> {
                     DropdownMenuItem(
                         value: 'deceased', child: Text('Fallecido')),
                   ],
-                  onChanged: submitting
-                      ? null
-                      : (v) => form.setStatus(v ?? 'active'),
+                  onChanged:
+                      submitting ? null : (v) => form.setStatus(v ?? 'active'),
                 ),
                 const SizedBox(height: _fieldGap),
                 TextFormField(

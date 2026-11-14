@@ -88,8 +88,9 @@ class AuthViewModel extends ChangeNotifier
   @override
   String? get enrolledUserHint => _enrolledUserHint;
 
-  bool get _hasBiometricPreference =>
-      _biometricEnabled || (_lastBootstrap?.biometricAvailable ?? false);
+  bool get _hasBiometricPreference => _auth.usesAccountAuthorization
+      ? _auth.biometricRequired
+      : _biometricEnabled || (_lastBootstrap?.biometricAvailable ?? false);
 
   /// Pause/resume. After [inactivityLockTimeout] with a live session and
   /// biometrics available, shows [AuthGate.biometricLock] without logging out.
@@ -100,6 +101,10 @@ class AuthViewModel extends ChangeNotifier
         _pausedAt ??= _clock();
         return;
       case AppLifecycleState.resumed:
+        if (_gate == AuthGate.app && !await _auth.canAccessLocally()) {
+          _forceLogin();
+          return;
+        }
         await _lockIfInactive();
         _pausedAt = null;
         return;
@@ -115,10 +120,16 @@ class AuthViewModel extends ChangeNotifier
     if (pausedAt == null) return;
     if (_clock().difference(pausedAt) < inactivityLockTimeout) return;
     if (!_hasBiometricPreference) return;
+    final generation = _auth.generation;
     final can = await _device.canAuthenticate();
+    if (generation != _auth.generation || _gate != AuthGate.app) return;
     _biometricHardwareAvailable = can;
-    if (!can) return;
+    _auth.offlineDeviceUnlockAvailable = can;
+    if (!can && (!_auth.usesAccountAuthorization || _auth.remoteVerified)) {
+      return;
+    }
     _gate = AuthGate.biometricLock;
+    _auth.localDataUnlocked = false;
     notifyListeners();
   }
 
@@ -126,6 +137,7 @@ class AuthViewModel extends ChangeNotifier
   Future<void> runBootstrap() async {
     if (_gate != AuthGate.splash) {
       _gate = AuthGate.splash;
+      _auth.localDataUnlocked = false;
       notifyListeners();
     }
 
@@ -134,6 +146,7 @@ class AuthViewModel extends ChangeNotifier
 
     if (!result.sessionValid) {
       _gate = AuthGate.login;
+      _auth.localDataUnlocked = false;
       notifyListeners();
       return;
     }
@@ -141,14 +154,23 @@ class AuthViewModel extends ChangeNotifier
     if (result.biometricAvailable) {
       final canPrompt = await _device.canAuthenticate();
       _biometricHardwareAvailable = canPrompt;
+      _auth.offlineDeviceUnlockAvailable = canPrompt;
       if (canPrompt) {
         _gate = AuthGate.biometricLock;
+        _auth.localDataUnlocked = false;
+        notifyListeners();
+        return;
+      }
+      if (result.offline) {
+        _gate = AuthGate.biometricLock;
+        _auth.localDataUnlocked = false;
         notifyListeners();
         return;
       }
     }
 
     _gate = AuthGate.app;
+    _auth.localDataUnlocked = true;
     notifyListeners();
   }
 
@@ -163,8 +185,15 @@ class AuthViewModel extends ChangeNotifier
     notifyListeners();
     try {
       await _auth.login(email: email, password: password);
+      if (_auth.usesAccountAuthorization && _auth.biometricRequired) {
+        final generation = _auth.generation;
+        final available = await _device.canAuthenticate();
+        if (generation != _auth.generation) return;
+        _auth.offlineDeviceUnlockAvailable = available;
+      }
       _sessionEmail = email.trim();
       _gate = AuthGate.app;
+      _auth.localDataUnlocked = true;
       _loginStatus = AuthSubmitStatus.success;
       notifyListeners();
     } catch (e) {
@@ -246,12 +275,18 @@ class AuthViewModel extends ChangeNotifier
 
   /// Device biometric / PIN — does not call backend; only unlocks UI after session exists.
   Future<bool> unlockWithBiometric() async {
+    final generation = _auth.generation;
     try {
       final ok = await _device.authenticate(
         reason: 'Desbloquea para acceder a CuniSmart',
       );
-      if (!ok) return false;
+      if (!ok || generation != _auth.generation) return false;
+      _auth.offlineDeviceUnlockAvailable = true;
+      if (!await _auth.canAccessLocally() || generation != _auth.generation) {
+        return false;
+      }
       _gate = AuthGate.app;
+      _auth.localDataUnlocked = true;
       notifyListeners();
       return true;
     } on PlatformException {
@@ -392,6 +427,7 @@ class AuthViewModel extends ChangeNotifier
         signature: signature,
       );
       _gate = AuthGate.app;
+      _auth.localDataUnlocked = true;
       _loginStatus = AuthSubmitStatus.success;
       notifyListeners();
       return true;
@@ -408,6 +444,7 @@ class AuthViewModel extends ChangeNotifier
   void _forceLogin() {
     if (_gate == AuthGate.login) return;
     _gate = AuthGate.login;
+    _auth.localDataUnlocked = false;
     notifyListeners();
   }
 

@@ -2,10 +2,16 @@ import 'dart:convert';
 
 /// HTTP / API failure from [ApiClient] or services.
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, String? code}) : _code = code;
+  ApiException(
+    this.message, {
+    this.statusCode,
+    String? code,
+    this.rawBody,
+  }) : _code = code;
 
   final String message;
   final int? statusCode;
+  final String? rawBody;
   final String? _code;
 
   /// Explicit [code] or backend `{ "code": "..." }` when the body is JSON.

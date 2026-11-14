@@ -6,6 +6,6 @@ class VersionConflict(APIException):
     default_code = "version_conflict"
     default_detail = "El conejo fue modificado en otro lugar."
 
-    def __init__(self, current):
+    def __init__(self, current, detail=None):
         self.current = current
-        super().__init__(detail=self.default_detail)
+        super().__init__(detail=detail or self.default_detail)

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 import 'package:frontend/core/network/api_client.dart';
 import 'package:frontend/core/state/async_view_state.dart';
@@ -81,6 +82,73 @@ void main() {
     expect(rows.single.name, 'Luna');
     expect(rows.single.uuid, _luna.uuid);
     expect(rows.single.syncStatus, RabbitSyncStatus.synced);
+  });
+
+  test('schema 2 upgrades existing rabbits to UNKNOWN without data loss',
+      () async {
+    final dir =
+        await Directory.systemTemp.createTemp('cunismart_r3_migration_');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File(p.join(dir.path, 'cunismart.sqlite'));
+    final legacy = sqlite.sqlite3.open(file.path);
+    legacy.execute('''
+      CREATE TABLE rabbits (
+        uuid TEXT NOT NULL PRIMARY KEY,
+        server_id INTEGER NULL,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        breed TEXT NOT NULL,
+        sex TEXT NOT NULL,
+        birth_date TEXT NOT NULL,
+        weight REAL NULL,
+        status TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT NULL,
+        sync_status TEXT NOT NULL DEFAULT 'SYNCED'
+      )
+    ''');
+    legacy.execute('''
+      CREATE TABLE sync_operations (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        rabbit_uuid TEXT NOT NULL,
+        operation_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        base_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        last_error TEXT NULL,
+        server_snapshot TEXT NULL
+      )
+    ''');
+    legacy.execute(
+      'INSERT INTO rabbits (uuid, server_id, user_id, name, breed, sex, '
+      'birth_date, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        _luna.uuid,
+        _luna.id,
+        _luna.userId,
+        _luna.name,
+        _luna.breed,
+        _luna.sex,
+        _luna.birthDate,
+        _luna.status,
+        _luna.createdAt,
+        _luna.updatedAt
+      ],
+    );
+    legacy.userVersion = 2;
+    legacy.dispose();
+
+    final db = AppDatabase.file(file);
+    addTearDown(db.close);
+    final rows = await RabbitLocalStore(db).readActive();
+
+    expect(rows.single.name, 'Luna');
+    expect(rows.single.genealogyKnowledge, 'UNKNOWN');
   });
 
   test('readActive hides logically deleted rabbits', () async {

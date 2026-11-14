@@ -81,13 +81,15 @@ class SensorViewModel extends ChangeNotifier {
 
   String _formatError(Object error) {
     if (error is ApiException) {
-      final code = error.statusCode;
-      if (code != null) {
-        return 'Request failed ($code): ${error.message}';
+      if (error.code == 'network') {
+        return 'No fue posible conectar con los sensores. Intenta nuevamente.';
+      }
+      if ((error.statusCode ?? 0) >= 500) {
+        return 'No fue posible obtener la información de los sensores. Intenta nuevamente.';
       }
       return error.message;
     }
-    return error.toString();
+    return 'No se pudieron cargar las lecturas. Intenta nuevamente.';
   }
 
   Future<void> loadSensorReadings() async {

@@ -3,13 +3,18 @@ import 'package:provider/provider.dart';
 
 import '../../core/state/async_view_state.dart';
 import '../../core/state/submit_state.dart';
+import '../../core/theme/cuni_theme.dart';
 import '../../features/auth/presentation/screens/security_settings_screen.dart';
+import '../../features/r3/presentation/genealogy_views.dart';
+import '../../features/r3/presentation/reproductive_views.dart';
 import '../../models/rabbit.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import 'rabbit_create_route.dart';
 import 'rabbit_detail_view.dart';
 import 'rabbit_qr_scan_view.dart';
+import 'widgets/rabbit_presentation.dart';
+import '../../widgets/voice_mic_fab.dart';
 
 class RabbitListView extends StatefulWidget {
   const RabbitListView({super.key});
@@ -36,7 +41,9 @@ class _RabbitListViewState extends State<RabbitListView> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
+      backgroundColor: CuniTheme.lightGrayBackground,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: Text(
           'Conejos',
           style: textTheme.titleLarge?.copyWith(
@@ -45,6 +52,33 @@ class _RabbitListViewState extends State<RabbitListView> {
           ),
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Genealogía y reproducción',
+            icon: const Icon(Icons.account_tree_outlined),
+            onSelected: (value) {
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => value == 'reproduction'
+                    ? const ReproductiveEventListView()
+                    : const KinshipView(),
+              ));
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'kinship',
+                child: ListTile(
+                  leading: Icon(Icons.calculate_outlined),
+                  title: Text('Consultar parentesco'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'reproduction',
+                child: ListTile(
+                  leading: Icon(Icons.family_restroom_outlined),
+                  title: Text('Gestión reproductiva'),
+                ),
+              ),
+            ],
+          ),
           IconButton(
             iconSize: 28,
             constraints:
@@ -92,21 +126,35 @@ class _RabbitListViewState extends State<RabbitListView> {
         ],
       ),
       body: _buildBody(context, vm),
-      floatingActionButton: FloatingActionButton.large(
-        onPressed: vm.shouldBlockCreateFab
-            ? null
-            : () async {
-                final created = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => const RabbitCreateRoute(),
-                  ),
-                );
-                if (created == true && context.mounted) {
-                  await context.read<RabbitViewModel>().loadRabbits();
-                }
-              },
-        tooltip: 'Crear conejo',
-        child: const Icon(Icons.add),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Semantics(
+            button: true,
+            label: 'Crear nuevo conejo',
+            child: FloatingActionButton.large(
+              heroTag: 'rabbit_create_fab',
+              onPressed: vm.shouldBlockCreateFab
+                  ? null
+                  : () async {
+                      final created = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute(
+                          builder: (_) => const RabbitCreateRoute(),
+                        ),
+                      );
+                      if (created == true && context.mounted) {
+                        await context.read<RabbitViewModel>().loadRabbits();
+                      }
+                    },
+              tooltip: 'Crear nuevo conejo',
+              elevation: 4,
+              child: const Icon(Icons.add),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const VoiceMicFab(heroTag: 'voice_mic_rabbits'),
+        ],
       ),
     );
   }
@@ -125,6 +173,21 @@ class _RabbitListViewState extends State<RabbitListView> {
     };
   }
 
+  Widget _subtitle(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        'Gestiona la información de tus conejos',
+        style: textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface.withOpacity(0.72),
+          height: 1.35,
+        ),
+      ),
+    );
+  }
+
   Widget _buildLoadingBody(
     BuildContext context,
     RabbitViewModel vm,
@@ -138,6 +201,7 @@ class _RabbitListViewState extends State<RabbitListView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const LinearProgressIndicator(minHeight: 4),
+        _subtitle(context),
         Expanded(
           child: cachedData.isEmpty
               ? _emptyPlaceholder(context)
@@ -152,8 +216,17 @@ class _RabbitListViewState extends State<RabbitListView> {
     RabbitViewModel vm,
     List<Rabbit> data,
   ) {
-    if (data.isEmpty) return _emptyPlaceholder(context);
-    return _rabbitList(context, data);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _subtitle(context),
+        Expanded(
+          child: data.isEmpty
+              ? _emptyPlaceholder(context)
+              : _rabbitList(context, data),
+        ),
+      ],
+    );
   }
 
   Widget _buildErrorBody(
@@ -167,10 +240,10 @@ class _RabbitListViewState extends State<RabbitListView> {
 
     if (cachedData == null) {
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.cloud_off_outlined,
@@ -235,6 +308,8 @@ class _RabbitListViewState extends State<RabbitListView> {
                       fontWeight: FontWeight.w500,
                       height: 1.35,
                     ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 TextButton(
@@ -250,6 +325,7 @@ class _RabbitListViewState extends State<RabbitListView> {
             ),
           ),
         ),
+        _subtitle(context),
         Expanded(
           child: cachedData.isEmpty
               ? _emptyPlaceholder(context)
@@ -278,155 +354,40 @@ class _RabbitListViewState extends State<RabbitListView> {
   }
 
   Widget _rabbitList(BuildContext context, List<Rabbit> rabbits) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-      separatorBuilder: (_, __) => const SizedBox(height: 14),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemCount: rabbits.length,
       itemBuilder: (context, i) {
         final r = rabbits[i];
         final vm = context.read<RabbitViewModel>();
-
-        return Material(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 6, 16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () async {
-                      final changed = await Navigator.of(context).push<bool>(
-                        MaterialPageRoute(
-                          builder: (_) => RabbitDetailView(rabbit: r),
-                        ),
-                      );
-                      if (changed == true && context.mounted) {
-                        await context.read<RabbitViewModel>().loadRabbits();
-                      }
-                    },
-                    child: Semantics(
-                      button: true,
-                      label: 'Ficha de ${r.name}, ${r.syncStatus.label}',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            r.name,
-                            style: textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: scheme.onSurface,
-                              height: 1.15,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Raza',
-                            style: textTheme.labelLarge?.copyWith(
-                              color: scheme.onSurface.withOpacity(0.75),
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            r.breed,
-                            style: textTheme.titleMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Estado',
-                            style: textTheme.labelLarge?.copyWith(
-                              color: scheme.onSurface.withOpacity(0.75),
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _statusLabel(r.status),
-                            style: textTheme.titleMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (r.weight != null) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              'Peso',
-                              style: textTheme.labelLarge?.copyWith(
-                                color: scheme.onSurface.withOpacity(0.75),
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${r.weight!.toStringAsFixed(1)} kg',
-                              style: textTheme.titleMedium?.copyWith(
-                                color: scheme.onSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+        return _RabbitCompactCard(
+          rabbit: r,
+          iconTap: _iconTap,
+          onOpen: () async {
+            final changed = await Navigator.of(context).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => RabbitDetailView(rabbit: r),
+              ),
+            );
+            if (changed == true && context.mounted) {
+              await context.read<RabbitViewModel>().loadRabbits();
+            }
+          },
+          onEdit: vm.isSubmitting
+              ? null
+              : () async {
+                  final updated = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => RabbitCreateRoute(rabbit: r),
                     ),
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      iconSize: 26,
-                      tooltip: 'Editar',
-                      constraints: const BoxConstraints(
-                        minWidth: _iconTap,
-                        minHeight: _iconTap,
-                      ),
-                      onPressed: vm.isSubmitting
-                          ? null
-                          : () async {
-                              final updated =
-                                  await Navigator.of(context).push<bool>(
-                                MaterialPageRoute(
-                                  builder: (_) => RabbitCreateRoute(rabbit: r),
-                                ),
-                              );
-                              if (updated == true && context.mounted) {
-                                await context
-                                    .read<RabbitViewModel>()
-                                    .loadRabbits();
-                              }
-                            },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      iconSize: 26,
-                      tooltip: 'Eliminar',
-                      constraints: const BoxConstraints(
-                        minWidth: _iconTap,
-                        minHeight: _iconTap,
-                      ),
-                      color: scheme.error,
-                      onPressed: vm.isSubmitting
-                          ? null
-                          : () => _confirmDelete(context, vm, r),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+                  );
+                  if (updated == true && context.mounted) {
+                    await context.read<RabbitViewModel>().loadRabbits();
+                  }
+                },
+          onDelete:
+              vm.isSubmitting ? null : () => _confirmDelete(context, vm, r),
         );
       },
     );
@@ -445,15 +406,6 @@ class _RabbitListViewState extends State<RabbitListView> {
         ),
       ),
     );
-  }
-
-  String _statusLabel(String status) {
-    return switch (status) {
-      'active' => 'Activo',
-      'sold' => 'Vendido',
-      'deceased' => 'Fallecido',
-      _ => status,
-    };
   }
 
   Future<void> _confirmDelete(
@@ -514,5 +466,148 @@ class _RabbitListViewState extends State<RabbitListView> {
       };
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
+  }
+}
+
+class _RabbitCompactCard extends StatelessWidget {
+  const _RabbitCompactCard({
+    required this.rabbit,
+    required this.iconTap,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Rabbit rabbit;
+  final double iconTap;
+  final VoidCallback onOpen;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final r = rabbit;
+    final weight = rabbitWeightLabel(r);
+
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: CuniTheme.borderGray, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            RabbitAvatar(name: r.name, radius: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Semantics(
+                          button: true,
+                          label: 'Abrir detalles de ${r.name}',
+                          excludeSemantics: true,
+                          child: InkWell(
+                            onTap: onOpen,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Text(
+                              r.name,
+                              style: textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: scheme.onSurface,
+                                height: 1.15,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      RabbitStatusChip(
+                        status: r.status,
+                        compact: true,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: onOpen,
+                    child: ExcludeSemantics(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            r.breed,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurface.withOpacity(0.78),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            weight,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: CuniTheme.darkGray,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  button: true,
+                  label: 'Editar conejo ${r.name}',
+                  child: IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    iconSize: 24,
+                    tooltip: 'Editar conejo ${r.name}',
+                    constraints: BoxConstraints(
+                      minWidth: iconTap,
+                      minHeight: iconTap,
+                    ),
+                    onPressed: onEdit,
+                  ),
+                ),
+                Semantics(
+                  button: true,
+                  label: 'Eliminar conejo ${r.name}',
+                  child: IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    iconSize: 24,
+                    tooltip: 'Eliminar conejo ${r.name}',
+                    constraints: BoxConstraints(
+                      minWidth: iconTap,
+                      minHeight: iconTap,
+                    ),
+                    color: scheme.error,
+                    onPressed: onDelete,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

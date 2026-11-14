@@ -145,10 +145,10 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
   ) {
     if (cachedData == null) {
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.cloud_off_outlined,
@@ -165,8 +165,9 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
               Text(message, textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FilledButton.icon(
-                onPressed:
-                    sensorVm.isLoading ? null : () => sensorVm.loadSensorReadings(),
+                onPressed: sensorVm.isLoading
+                    ? null
+                    : () => sensorVm.loadSensorReadings(),
                 icon: const Icon(Icons.refresh),
                 label: const Text('Reintentar'),
               ),
@@ -196,6 +197,8 @@ class _IoTDashboardViewState extends State<IoTDashboardView> {
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onErrorContainer,
                     ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 TextButton(
@@ -525,7 +528,8 @@ class _RabbitsSummaryBlock extends StatelessWidget {
     final weights = _latestWeightByRabbit(sensorVm);
     final rabbitState = rabbitVm.listState;
 
-    if (rabbitState is AsyncSuccess<List<Rabbit>> && rabbitState.data.isNotEmpty) {
+    if (rabbitState is AsyncSuccess<List<Rabbit>> &&
+        rabbitState.data.isNotEmpty) {
       return Column(
         children: [
           for (final rabbit in rabbitState.data)
@@ -603,7 +607,8 @@ class _AlertsBlock extends StatelessWidget {
     if (alerts.isEmpty) {
       return Card(
         child: ListTile(
-          leading: Icon(Icons.check_circle_outline, color: Theme.of(context).colorScheme.primary),
+          leading: Icon(Icons.check_circle_outline,
+              color: Theme.of(context).colorScheme.primary),
           title: const Text('Sin avisos por ahora.'),
         ),
       );

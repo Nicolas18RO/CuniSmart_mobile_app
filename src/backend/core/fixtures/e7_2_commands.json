@@ -1,0 +1,50 @@
+[
+  {
+    "command": {
+      "entity_type": "REPRODUCTIVE_EVENT",
+      "action": "CREATE",
+      "destination": "/reproductive-events/",
+      "payload": {
+        "notes": "Cría 🐇\t\n",
+        "nested": {
+          "𐀀": null,
+          "": true,
+          "a": [
+            -2,
+            0,
+            9007199254740991
+          ]
+        }
+      }
+    },
+    "canonical": "{\"action\":\"CREATE\",\"destination\":\"/reproductive-events/\",\"entityType\":\"REPRODUCTIVE_EVENT\",\"expectedVersion\":null,\"method\":\"POST\",\"payload\":{\"nested\":{\"a\":[-2,0,9007199254740991],\"\":true,\"𐀀\":null},\"notes\":\"Cría 🐇\\t\\n\"},\"version\":1}",
+    "sha256": "51a4cd8a222e9ce6be3640e24e0e0ba0b0de94540d24dd28c17830e21f4c9e42"
+  },
+  {
+    "command": {
+      "entity_type": "PARENT_LINK",
+      "action": "UPDATE",
+      "destination": "/rabbits/abc/parents/father/",
+      "expected_version": 3,
+      "payload": {
+        "parent_uuid": "xyz",
+        "note": null
+      }
+    },
+    "canonical": "{\"action\":\"UPDATE\",\"destination\":\"/rabbits/abc/parents/father/\",\"entityType\":\"PARENT_LINK\",\"expectedVersion\":3,\"method\":\"PUT\",\"payload\":{\"note\":null,\"parent_uuid\":\"xyz\"},\"version\":1}",
+    "sha256": "7d99f5c4f65094b0a81ad4519a214550ec0522874920436bf8bf41282c1ff020"
+  },
+  {
+    "command": {
+      "entity_type": "PARENT_LINK",
+      "action": "UPDATE",
+      "destination": "/rabbits/abc/parents/father/",
+      "expected_version": 3,
+      "payload": {
+        "parent_uuid": "xyz"
+      }
+    },
+    "canonical": "{\"action\":\"UPDATE\",\"destination\":\"/rabbits/abc/parents/father/\",\"entityType\":\"PARENT_LINK\",\"expectedVersion\":3,\"method\":\"PUT\",\"payload\":{\"parent_uuid\":\"xyz\"},\"version\":1}",
+    "sha256": "11b486334ab7ae9ce74c06b5653295c0fae027ee6681ccee6141b5ab1299b95a"
+  }
+]

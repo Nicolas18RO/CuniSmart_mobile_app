@@ -13,7 +13,11 @@ import '../services/rabbit_service.dart';
 class RabbitViewModel extends ChangeNotifier {
   RabbitViewModel(this._rabbitService, {Stream<bool>? onlineChanges}) {
     _onlineSub = onlineChanges?.listen((online) {
-      if (online) loadRabbits();
+      if (online) {
+        unawaited(loadRabbits());
+      } else {
+        _rabbitService.disconnected();
+      }
     });
   }
 
@@ -31,17 +35,37 @@ class RabbitViewModel extends ChangeNotifier {
 
   bool _listLoadInFlight = false;
 
-  AsyncViewState<List<Rabbit>> get listState => _listState;
-  SubmitState get submitState => _submitState;
+  int? _stateGeneration;
 
-  bool get isSubmitting => _submitState is SubmitInProgress;
+  void _refreshAccountState() {
+    final generation = _rabbitService.generation;
+    if (_stateGeneration == generation) return;
+    _stateGeneration = generation;
+    _listState = const AsyncInitial<List<Rabbit>>();
+    _submitState = const SubmitIdle();
+    _lastSuccessfulRabbits = [];
+    _hasLoadedSuccessfully = false;
+    _listLoadInFlight = false;
+  }
+
+  AsyncViewState<List<Rabbit>> get listState {
+    _refreshAccountState();
+    return _listState;
+  }
+
+  SubmitState get submitState {
+    _refreshAccountState();
+    return _submitState;
+  }
+
+  bool get isSubmitting => submitState is SubmitInProgress;
 
   /// True while a list request is running (initial or refresh).
-  bool get isListLoading => _listState is AsyncLoading<List<Rabbit>>;
+  bool get isListLoading => listState is AsyncLoading<List<Rabbit>>;
 
   /// Block FAB during first load (no cache yet). Allow create during refresh when we have prior data.
   bool get shouldBlockCreateFab {
-    return switch (_listState) {
+    return switch (listState) {
       AsyncLoading(:final cachedData) => cachedData == null,
       _ => false,
     };
@@ -49,13 +73,15 @@ class RabbitViewModel extends ChangeNotifier {
 
   String _formatError(Object error) {
     if (error is ApiException) {
-      final code = error.statusCode;
-      if (code != null) {
-        return 'Request failed ($code): ${error.message}';
+      if (error.code == 'network') {
+        return 'No fue posible conectar con el servidor. Intenta nuevamente.';
+      }
+      if ((error.statusCode ?? 0) >= 500) {
+        return 'Ocurrió un problema al consultar la información. Intenta nuevamente.';
       }
       return error.message;
     }
-    return error.toString();
+    return 'No se pudo completar la operación. Intenta nuevamente.';
   }
 
   /// `null` = never loaded successfully (show full-screen spinner). Otherwise show list/empty + refresh UI.
@@ -66,25 +92,31 @@ class RabbitViewModel extends ChangeNotifier {
 
   /// Initial load or refresh. Keeps last successful data (including empty list) on refresh failure.
   Future<void> loadRabbits() async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     if (_listLoadInFlight) return;
     _listLoadInFlight = true;
 
-    final local = await _rabbitService.readLocalRabbits();
-    if (local.isNotEmpty) {
-      _hasLoadedSuccessfully = true;
-      _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(local);
-    }
-
-    _listState = AsyncLoading<List<Rabbit>>(cachedData: _cacheForLoading());
-    notifyListeners();
-
     try {
+      final local = await _rabbitService.readLocalRabbits();
+      if (generation != _rabbitService.generation) return;
+      if (local.isNotEmpty) {
+        _hasLoadedSuccessfully = true;
+        _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(local);
+      }
+
+      _listState = AsyncLoading<List<Rabbit>>(cachedData: _cacheForLoading());
+      notifyListeners();
+
       await _rabbitService.syncPending();
+      if (generation != _rabbitService.generation) return;
       final list = await _rabbitService.fetchRabbits();
+      if (generation != _rabbitService.generation) return;
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
     } catch (e) {
+      if (generation != _rabbitService.generation) return;
       final message = _formatError(e);
       if (_hasLoadedSuccessfully) {
         _listState = AsyncError<List<Rabbit>>(
@@ -95,8 +127,10 @@ class RabbitViewModel extends ChangeNotifier {
         _listState = AsyncError<List<Rabbit>>(message);
       }
     } finally {
-      _listLoadInFlight = false;
-      notifyListeners();
+      if (generation == _rabbitService.generation) {
+        _listLoadInFlight = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -110,6 +144,8 @@ class RabbitViewModel extends ChangeNotifier {
 
   /// Resolve a scanned QR to a rabbit (local first, then API if online).
   Future<Rabbit?> lookupFromQr(String raw) async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     final uuid = RabbitQr.parseUuid(raw);
     if (uuid == null) {
       _submitState = const SubmitFailed('Este código no es de CuniSmart');
@@ -123,10 +159,12 @@ class RabbitViewModel extends ChangeNotifier {
 
     try {
       final rabbit = await _rabbitService.lookupByUuid(uuid);
+      if (generation != _rabbitService.generation) return null;
       _submitState = const SubmitIdle();
       notifyListeners();
       return rabbit;
     } catch (e) {
+      if (generation != _rabbitService.generation) return null;
       _submitState = SubmitFailed(_formatError(e));
       notifyListeners();
       return null;
@@ -142,7 +180,10 @@ class RabbitViewModel extends ChangeNotifier {
     double? weight,
     required String status,
     String notes = '',
+    String genealogyKnowledge = 'UNKNOWN',
   }) async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     if (_submitState is SubmitInProgress) return false;
 
     _submitState = const SubmitInProgress();
@@ -157,8 +198,11 @@ class RabbitViewModel extends ChangeNotifier {
         weight: weight,
         status: status,
         notes: notes,
+        genealogyKnowledge: genealogyKnowledge,
       );
+      if (generation != _rabbitService.generation) return false;
       final list = await _rabbitService.readLocalRabbits();
+      if (generation != _rabbitService.generation) return false;
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -166,6 +210,7 @@ class RabbitViewModel extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      if (generation != _rabbitService.generation) return false;
       _submitState = SubmitFailed(_formatError(e));
       notifyListeners();
       return false;
@@ -182,7 +227,10 @@ class RabbitViewModel extends ChangeNotifier {
     double? weight,
     required String status,
     String notes = '',
+    String? genealogyKnowledge,
   }) async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     if (_submitState is SubmitInProgress) return false;
 
     _submitState = const SubmitInProgress();
@@ -198,8 +246,11 @@ class RabbitViewModel extends ChangeNotifier {
         weight: weight,
         status: status,
         notes: notes,
+        genealogyKnowledge: genealogyKnowledge,
       );
+      if (generation != _rabbitService.generation) return false;
       final list = await _rabbitService.readLocalRabbits();
+      if (generation != _rabbitService.generation) return false;
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -207,6 +258,7 @@ class RabbitViewModel extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      if (generation != _rabbitService.generation) return false;
       _submitState = SubmitFailed(_formatError(e));
       notifyListeners();
       return false;
@@ -233,6 +285,8 @@ class RabbitViewModel extends ChangeNotifier {
     String uuid,
     Future<void> Function() action,
   ) async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     if (_submitState is SubmitInProgress) return null;
 
     _submitState = const SubmitInProgress();
@@ -240,7 +294,9 @@ class RabbitViewModel extends ChangeNotifier {
 
     try {
       await action();
+      if (generation != _rabbitService.generation) return null;
       final list = await _rabbitService.readLocalRabbits();
+      if (generation != _rabbitService.generation) return null;
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -251,6 +307,7 @@ class RabbitViewModel extends ChangeNotifier {
       }
       return null;
     } catch (e) {
+      if (generation != _rabbitService.generation) return null;
       _submitState = SubmitFailed(_formatError(e));
       notifyListeners();
       return null;
@@ -259,6 +316,8 @@ class RabbitViewModel extends ChangeNotifier {
 
   /// Delete rabbit, refresh list on success. Prevents overlapping submits.
   Future<bool> deleteRabbit(String uuid) async {
+    _refreshAccountState();
+    final generation = _stateGeneration;
     if (_submitState is SubmitInProgress) return false;
 
     _submitState = const SubmitInProgress();
@@ -266,7 +325,9 @@ class RabbitViewModel extends ChangeNotifier {
 
     try {
       await _rabbitService.deleteRabbit(uuid);
+      if (generation != _rabbitService.generation) return false;
       final list = await _rabbitService.readLocalRabbits();
+      if (generation != _rabbitService.generation) return false;
       _hasLoadedSuccessfully = true;
       _lastSuccessfulRabbits = List<Rabbit>.unmodifiable(list);
       _listState = AsyncSuccess<List<Rabbit>>(list);
@@ -274,6 +335,7 @@ class RabbitViewModel extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      if (generation != _rabbitService.generation) return false;
       _submitState = SubmitFailed(_formatError(e));
       notifyListeners();
       return false;

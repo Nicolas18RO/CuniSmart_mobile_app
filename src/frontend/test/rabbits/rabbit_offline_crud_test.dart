@@ -16,7 +16,8 @@ import 'package:frontend/services/rabbit_local_store.dart';
 import 'package:frontend/services/rabbit_service.dart';
 import 'package:frontend/viewmodels/rabbit_viewmodel.dart';
 
-http.Client _down() => MockClient((_) async => http.Response('sin servidor', 500));
+http.Client _down() =>
+    MockClient((_) async => http.Response('sin servidor', 500));
 
 RabbitService _offlineService(AppDatabase db) {
   return RabbitService(
@@ -26,7 +27,8 @@ RabbitService _offlineService(AppDatabase db) {
 }
 
 void main() {
-  test('create without server saves PENDING_CREATE and a CREATE queue row', () async {
+  test('create without server saves PENDING_CREATE and a CREATE queue row',
+      () async {
     final db = AppDatabase.memory();
     addTearDown(db.close);
     final service = _offlineService(db);
@@ -48,6 +50,29 @@ void main() {
     expect(ops.single.operationType, SyncOperationType.create);
     expect(ops.single.status, SyncOpStatus.pending);
     expect(ops.single.rabbitUuid, created.uuid);
+  });
+
+  test('external founder survives offline cache and queued payload', () async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
+    final service = _offlineService(db);
+
+    final created = await service.createRabbit(
+      name: 'Pepe',
+      breed: 'Nueva Zelanda',
+      sex: 'male',
+      birthDate: '2024-06-01',
+      status: 'active',
+      genealogyKnowledge: 'FOUNDER',
+    );
+
+    expect(created.genealogyKnowledge, 'FOUNDER');
+    expect((await service.readLocalRabbits()).single.genealogyKnowledge,
+        'FOUNDER');
+    final payload = jsonDecode(
+      (await service.readPendingOperations()).single.payload,
+    ) as Map<String, dynamic>;
+    expect(payload['genealogy_knowledge'], 'FOUNDER');
   });
 
   test('queue survives close and reopen of the database file', () async {
@@ -75,7 +100,9 @@ void main() {
     expect(local.single.name, 'Nube');
   });
 
-  test('update without server writes PENDING_UPDATE and keeps the animal visible', () async {
+  test(
+      'update without server writes PENDING_UPDATE and keeps the animal visible',
+      () async {
     final db = AppDatabase.memory();
     addTearDown(db.close);
     final store = RabbitLocalStore(db);
@@ -143,7 +170,8 @@ void main() {
     expect(ops.single.operationType, SyncOperationType.delete);
   });
 
-  test('unsynced create then delete cancels the queue instead of DELETE', () async {
+  test('unsynced create then delete cancels the queue instead of DELETE',
+      () async {
     final db = AppDatabase.memory();
     addTearDown(db.close);
     final service = _offlineService(db);

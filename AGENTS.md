@@ -88,6 +88,13 @@ These rules apply across all AI coding assistants (Cursor, Copilot, Claude, Gemi
 - Multi-user support
 
 ## Current State
-- Repo currently contains PRD + Tech Design + templates only.
-- Next implementation step is to scaffold the Flutter app and Django REST backend following `agent_docs/tech_stack.md` and `agent_docs/code_patterns.md`.
+**Last Updated:** 2026-11-10
+
+**Working On:** Validación física pendiente de R3 E3–E4.
+
+**Recently Completed:** Fundadores externos independientes integrados en
+backend y Flutter offline-first; cálculo y mensajes de parentesco validados.
+
+**Blocked By:** Ninguno para código; la validación TalkBack/dispositivo requiere
+ejecución física manual.
 

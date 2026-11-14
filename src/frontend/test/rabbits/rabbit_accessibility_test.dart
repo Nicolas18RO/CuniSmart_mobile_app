@@ -36,7 +36,7 @@ void main() {
     expect(spoken, contains('Luna'));
     expect(spoken, contains('Raza Rex'));
     expect(spoken, contains('Sexo hembra'));
-    expect(spoken, contains('Nacido el 2024-01-15'));
+    expect(spoken, contains('Nacido el 15 de enero de 2024'));
     expect(spoken, contains('Peso'));
     expect(spoken, contains('2,5'));
     expect(spoken, contains('Estado activo'));
@@ -70,6 +70,8 @@ void main() {
   testWidgets('ficha TalkBack labels follow the expected field order', (
     tester,
   ) async {
+    final db = AppDatabase.memory();
+    addTearDown(db.close);
     final handle = tester.ensureSemantics();
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -78,7 +80,7 @@ void main() {
             ApiClient(
               httpClient: MockClient((_) async => http.Response('[]', 200)),
             ),
-            RabbitLocalStore(AppDatabase.memory()),
+            RabbitLocalStore(db),
           ),
         ),
         child: const MaterialApp(home: RabbitDetailView(rabbit: _luna)),

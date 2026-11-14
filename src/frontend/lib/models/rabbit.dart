@@ -13,6 +13,7 @@ class Rabbit {
     this.weight,
     required this.status,
     required this.notes,
+    this.genealogyKnowledge = 'UNKNOWN',
     required this.version,
     required this.createdAt,
     required this.updatedAt,
@@ -30,6 +31,7 @@ class Rabbit {
   final double? weight;
   final String status;
   final String notes;
+  final String genealogyKnowledge;
   final int version;
   final String createdAt;
   final String updatedAt;
@@ -48,6 +50,7 @@ class Rabbit {
       weight: (json['weight'] as num?)?.toDouble(),
       status: json['status'] as String,
       notes: json['notes'] as String? ?? '',
+      genealogyKnowledge: json['genealogy_knowledge'] as String? ?? 'UNKNOWN',
       version: (json['version'] as num?)?.toInt() ?? 1,
       createdAt: json['created_at'] as String,
       updatedAt: json['updated_at'] as String,
@@ -68,6 +71,7 @@ class Rabbit {
     bool clearWeight = false,
     String? status,
     String? notes,
+    String? genealogyKnowledge,
     int? version,
     String? createdAt,
     String? updatedAt,
@@ -86,6 +90,7 @@ class Rabbit {
       weight: clearWeight ? null : (weight ?? this.weight),
       status: status ?? this.status,
       notes: notes ?? this.notes,
+      genealogyKnowledge: genealogyKnowledge ?? this.genealogyKnowledge,
       version: version ?? this.version,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

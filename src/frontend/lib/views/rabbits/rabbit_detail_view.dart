@@ -3,12 +3,15 @@ import 'package:flutter/semantics.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/state/submit_state.dart';
+import '../../core/theme/cuni_theme.dart';
 import '../../models/rabbit.dart';
 import '../../models/sync_status.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../viewmodels/voice_viewmodel.dart';
+import '../../features/r3/presentation/genealogy_views.dart';
 import 'rabbit_create_route.dart';
 import 'rabbit_qr_view.dart';
+import 'widgets/rabbit_presentation.dart';
 
 class RabbitDetailView extends StatefulWidget {
   const RabbitDetailView({
@@ -20,22 +23,9 @@ class RabbitDetailView extends StatefulWidget {
   final Rabbit rabbit;
   final bool announceOnOpen;
 
-  static String sexLabel(String sex) {
-    return switch (sex) {
-      'male' => 'Macho',
-      'female' => 'Hembra',
-      _ => sex,
-    };
-  }
+  static String sexLabel(String sex) => rabbitSexLabel(sex);
 
-  static String statusLabel(String status) {
-    return switch (status) {
-      'active' => 'Activo',
-      'sold' => 'Vendido',
-      'deceased' => 'Fallecido',
-      _ => status,
-    };
-  }
+  static String statusLabel(String status) => rabbitStatusLabel(status);
 
   @override
   State<RabbitDetailView> createState() => _RabbitDetailViewState();
@@ -65,9 +55,13 @@ class _RabbitDetailViewState extends State<RabbitDetailView> {
     final textTheme = Theme.of(context).textTheme;
     final r = _rabbit;
     final inConflict = r.syncStatus == RabbitSyncStatus.conflict;
+    final weightText = rabbitWeightLabel(r);
+    final notesText = r.notes.trim().isEmpty ? 'Sin notas' : r.notes;
 
     return Scaffold(
+      backgroundColor: CuniTheme.lightGrayBackground,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: Text(
           r.name,
           style: textTheme.titleLarge?.copyWith(
@@ -93,7 +87,7 @@ class _RabbitDetailViewState extends State<RabbitDetailView> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (inConflict) ...[
               Semantics(
@@ -118,35 +112,134 @@ class _RabbitDetailViewState extends State<RabbitDetailView> {
               ),
               const SizedBox(height: 20),
             ],
-            _FichaRow(label: 'Nombre', value: r.name, order: 1),
-            _FichaRow(label: 'Raza', value: r.breed, order: 2),
-            _FichaRow(
-              label: 'Sexo',
-              value: RabbitDetailView.sexLabel(r.sex),
-              order: 3,
+            Center(child: RabbitDetailAvatar(name: r.name, radius: 48)),
+            const SizedBox(height: 16),
+            Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Semantics(
+                            sortKey: const OrdinalSortKey(1),
+                            label: 'Nombre: ${r.name}',
+                            child: ExcludeSemantics(
+                              child: Text(
+                                r.name,
+                                style: textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        RabbitStatusChip(
+                          status: r.status,
+                          excludeFromSemantics: true,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Semantics(
+                      sortKey: const OrdinalSortKey(2),
+                      label: 'Raza: ${r.breed}',
+                      child: ExcludeSemantics(
+                        child: Text(
+                          r.breed,
+                          style: textTheme.titleMedium?.copyWith(
+                            color: scheme.onSurface.withOpacity(0.8),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            _FichaRow(
-              label: 'Fecha de nacimiento',
-              value: r.birthDate,
-              order: 4,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _MetricTile(
+                    label: 'Peso',
+                    value: weightText,
+                    order: 5,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _MetricTile(
+                    label: 'Fecha de nacimiento',
+                    value: r.birthDate,
+                    order: 4,
+                  ),
+                ),
+              ],
             ),
-            _FichaRow(
-              label: 'Peso',
-              value: r.weight == null
-                  ? 'Sin peso'
-                  : '${r.weight!.toStringAsFixed(1)} kg',
-              order: 5,
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _MetricTile(
+                    label: 'Sexo',
+                    value: RabbitDetailView.sexLabel(r.sex),
+                    order: 3,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _MetricTile(
+                    label: 'Estado',
+                    value: RabbitDetailView.statusLabel(r.status),
+                    order: 6,
+                  ),
+                ),
+              ],
             ),
-            _FichaRow(
-              label: 'Estado',
-              value: RabbitDetailView.statusLabel(r.status),
-              order: 6,
+            const SizedBox(height: 12),
+            Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Semantics(
+                  sortKey: const OrdinalSortKey(7),
+                  label: 'Observaciones: $notesText',
+                  child: ExcludeSemantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Notas',
+                          style: textTheme.labelLarge?.copyWith(
+                            color: scheme.onSurface.withOpacity(0.7),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          notesText,
+                          style: textTheme.titleMedium?.copyWith(
+                            color: scheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-            _FichaRow(
-              label: 'Observaciones',
-              value: r.notes.trim().isEmpty ? 'Sin notas' : r.notes,
-              order: 7,
-            ),
+            const SizedBox(height: 12),
             _FichaRow(label: 'Identificador', value: r.uuid, order: 8),
             _FichaRow(
               label: 'Sincronización',
@@ -154,6 +247,18 @@ class _RabbitDetailViewState extends State<RabbitDetailView> {
               order: 9,
             ),
             const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => GenealogyView(rabbit: r)),
+                ),
+                icon: const Icon(Icons.account_tree_outlined),
+                label: const Text('Genealogía y parentesco'),
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               height: 54,
@@ -353,6 +458,58 @@ class _RabbitDetailViewState extends State<RabbitDetailView> {
   }
 }
 
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.label,
+    required this.value,
+    required this.order,
+  });
+
+  final String label;
+  final String value;
+  final double order;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Semantics(
+      sortKey: OrdinalSortKey(order),
+      label: '$label: $value',
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: textTheme.labelLarge?.copyWith(
+                    color: scheme.onSurface.withOpacity(0.7),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  value,
+                  style: textTheme.titleMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FichaRow extends StatelessWidget {
   const _FichaRow({
     required this.label,
@@ -373,27 +530,34 @@ class _FichaRow extends StatelessWidget {
       label: '$label: $value',
       child: ExcludeSemantics(
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: textTheme.labelLarge?.copyWith(
-                  color: scheme.onSurface.withOpacity(0.75),
-                  fontWeight: FontWeight.w600,
-                ),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: scheme.onSurface.withOpacity(0.7),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: textTheme.titleMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: textTheme.titleMedium?.copyWith(
-                  color: scheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -145,6 +146,31 @@ void main() {
     expect(invalid, 1);
   });
 
+  test('concurrent refresh shares a temporary failure and keeps credentials',
+      () async {
+    final storage = AuthTokenStorage.inMemory();
+    await storage.writeRefreshToken('refresh');
+    final response = Completer<http.Response>();
+    var requests = 0;
+    var invalidations = 0;
+    final service = buildService(MockClient((request) {
+      expect(request.url.path, '/api/auth/token/refresh/');
+      requests++;
+      return response.future;
+    }), storage: storage);
+    service.onSessionInvalid = () => invalidations++;
+
+    final first = service.refreshFromStorage();
+    final second = service.refreshFromStorage();
+    await Future<void>.delayed(Duration.zero);
+    response.complete(http.Response('{}', 503));
+
+    expect(await Future.wait([first, second]), [false, false]);
+    expect(requests, 1);
+    expect(invalidations, 0);
+    expect(await storage.readRefreshToken(), 'refresh');
+  });
+
   test('requestPasswordReset posts email without auth header', () async {
     http.Request? captured;
     final mock = MockClient((request) async {
@@ -170,7 +196,9 @@ void main() {
     final mock = MockClient((request) async {
       captured = request;
       return http.Response(
-        jsonEncode({'detail': 'Password updated. You can sign in with your new password.'}),
+        jsonEncode({
+          'detail': 'Password updated. You can sign in with your new password.'
+        }),
         200,
       );
     });

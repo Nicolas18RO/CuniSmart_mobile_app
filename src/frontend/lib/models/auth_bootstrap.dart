@@ -4,11 +4,13 @@ class BootstrapResult {
     required this.sessionValid,
     required this.authRequired,
     required this.biometricAvailable,
+    this.offline = false,
   });
 
   final bool sessionValid;
   final bool authRequired;
   final bool biometricAvailable;
+  final bool offline;
 
   factory BootstrapResult.fromJson(Map<String, dynamic> json) {
     return BootstrapResult(

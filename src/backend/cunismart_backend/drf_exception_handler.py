@@ -60,7 +60,7 @@ def cunismart_exception_handler(exc: Exception, context: dict) -> Any:
 
     if isinstance(exc, VersionConflict):
         response.data = {
-            "detail": "El conejo fue modificado en otro lugar.",
+            "detail": _detail_to_str(exc.detail),
             "code": "version_conflict",
             "current": getattr(exc, "current", None),
         }

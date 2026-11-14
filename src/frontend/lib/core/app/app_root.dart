@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../viewmodels/auth_viewmodel.dart';
+import '../../features/r3/presentation/r3_view_model.dart';
 import '../../viewmodels/rabbit_viewmodel.dart';
 import '../../views/auth/biometric_lock_screen.dart';
 
@@ -22,25 +23,43 @@ class AppRoot extends StatefulWidget {
 
 class _AppRootState extends State<AppRoot> with WidgetsBindingObserver {
   late final Future<void> _bootstrapFuture;
+  late final AuthViewModel _auth;
+  late AuthGate _previousGate;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _bootstrapFuture = context.read<AuthViewModel>().runBootstrap();
+    _auth = context.read<AuthViewModel>();
+    _previousGate = _auth.gate;
+    _auth.addListener(_closeProtectedRoutes);
+    _bootstrapFuture = _auth.runBootstrap();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _auth.removeListener(_closeProtectedRoutes);
     super.dispose();
   }
 
+  void _closeProtectedRoutes() {
+    final previous = _previousGate;
+    _previousGate = _auth.gate;
+    if (previous != AuthGate.app || _auth.gate == AuthGate.app) return;
+    context.read<R3ViewModel?>()?.invalidateSession();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _auth.gate != AuthGate.app) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    });
+  }
+
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    context.read<AuthViewModel>().handleAppLifecycle(state);
-    if (state == AppLifecycleState.resumed &&
-        context.read<AuthViewModel>().gate == AuthGate.app) {
+  Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    await _auth.handleAppLifecycle(state);
+    if (!mounted) return;
+    if (state == AppLifecycleState.resumed && _auth.gate == AuthGate.app) {
       context.read<RabbitViewModel>().loadRabbits();
     }
   }

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,14 +6,20 @@ import 'core/network/api_client.dart';
 import 'core/theme/cuni_theme.dart';
 import 'core/voice/app_voice_form_bridge.dart';
 import 'data/local/app_database.dart';
+import 'features/r3/application/r3_use_cases.dart';
+import 'features/r3/data/local_r3_repository.dart';
+import 'features/r3/presentation/r3_view_model.dart';
 import 'services/auth_service.dart';
 import 'services/chatbot_service.dart';
 import 'services/connectivity_plus_gate.dart';
+import 'services/r3_hydration_service.dart';
+import 'services/offline_authorization.dart';
 import 'services/rabbit_local_store.dart';
 import 'services/rabbit_service.dart';
 import 'services/sensor_service.dart';
 import 'services/voice_command_parser.dart';
 import 'services/voice_service.dart';
+import 'voice/engine/r3_voice_facade.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/chatbot_viewmodel.dart';
 import 'viewmodels/rabbit_viewmodel.dart';
@@ -24,6 +29,7 @@ import 'views/chatbot/chatbot_view.dart';
 import 'views/iot/iot_dashboard_view.dart';
 import 'views/rabbits/rabbit_create_route.dart';
 import 'views/rabbits/rabbit_list_view.dart';
+import 'widgets/voice_mic_fab.dart';
 
 /// Used so [VoiceViewModel] can open routes without a [BuildContext] from a nested rebuild.
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -54,17 +60,30 @@ class CuniSmartApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apiClient = ApiClient();
-    final authService = AuthService(apiClient: apiClient);
+    final authService = AuthService(
+      apiClient: apiClient,
+      readBootTime: readAndroidBootTime,
+    );
     apiClient.onTokenRefresh = authService.refreshFromStorage;
+    apiClient.sessionGeneration = () => authService.generation;
+    apiClient.onBackendUnavailable = authService.markDisconnected;
 
     final connectivity = ConnectivityPlusGate();
     final rabbitService = RabbitService(
       apiClient,
-      RabbitLocalStore(database),
+      RabbitLocalStore.accountScopes(database),
       connectivity: connectivity,
+      r3PublicationEnabled:
+          const bool.fromEnvironment('CUNISMART_R3_PUBLICATION'),
+      auth: authService,
     );
     final sensorService = SensorService(apiClient);
     final chatbotService = ChatbotService(apiClient);
+    final r3UseCases = R3UseCases(LocalR3Repository(
+      database,
+      authService,
+      onLocalMutation: rabbitService.requestR3Publication,
+    ));
 
     return MultiProvider(
       providers: [
@@ -74,6 +93,10 @@ class CuniSmartApp extends StatelessWidget {
           create: (_) => AuthViewModel(authService: authService),
         ),
         Provider<RabbitService>.value(value: rabbitService),
+        Provider<R3HydrationService>(
+          create: (_) => R3HydrationService(database, apiClient, authService,
+              onResolution: rabbitService.requestR3Publication),
+        ),
         Provider<SensorService>.value(value: sensorService),
         Provider<ChatbotService>.value(value: chatbotService),
         Provider<VoiceService>(create: (_) => VoiceService()),
@@ -90,6 +113,14 @@ class CuniSmartApp extends StatelessWidget {
         ChangeNotifierProvider<ChatbotViewModel>(
           create: (_) => ChatbotViewModel(chatbotService),
         ),
+        ChangeNotifierProvider<R3ViewModel>(
+          create: (_) => R3ViewModel(
+            r3UseCases,
+            sessionGeneration: () => authService.generation,
+            sessionUnlocked: () => authService.localDataUnlocked,
+            remoteVerified: () => authService.remoteVerified,
+          ),
+        ),
         ChangeNotifierProvider<AppVoiceFormBridge>(
           create: (_) => AppVoiceFormBridge(),
         ),
@@ -100,6 +131,9 @@ class CuniSmartApp extends StatelessWidget {
             ctx.read<RabbitViewModel>(),
             ctx.read<SensorViewModel>(),
             ctx.read<AppVoiceFormBridge>(),
+            r3VoiceFacade: R3VoiceFacade(r3UseCases,
+                sessionGeneration: () => authService.generation,
+                sessionUnlocked: () => authService.localDataUnlocked),
             onRequestOpenCreateRabbitScreen: () {
               appNavigatorKey.currentState?.push<bool>(
                 MaterialPageRoute(builder: (_) => const RabbitCreateRoute()),
@@ -175,7 +209,12 @@ class _MainShellState extends State<_MainShell> {
           ),
         ],
       ),
-      floatingActionButton: const _VoiceMicButton(heroTag: 'voice_mic_shell'),
+      floatingActionButton: _index == 0
+          ? null
+          : const VoiceMicFab(
+              heroTag: 'voice_mic_shell',
+              debugBypassStt: kVoiceDebugBypassStt,
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
@@ -222,53 +261,6 @@ class _VoiceStatusChip extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Mic: tap starts listening; tap again stops and runs command / silence handling.
-class _VoiceMicButton extends StatefulWidget {
-  const _VoiceMicButton({required this.heroTag});
-
-  final Object heroTag;
-
-  @override
-  State<_VoiceMicButton> createState() => _VoiceMicButtonState();
-}
-
-class _VoiceMicButtonState extends State<_VoiceMicButton> {
-  Future<void> _toggle() async {
-    final vm = context.read<VoiceViewModel>();
-    debugPrint(
-      'VoiceMic: tap isListening=${vm.voice.isListening} kVoiceDebugBypassStt=$kVoiceDebugBypassStt',
-    );
-
-    if (kDebugMode && kVoiceDebugBypassStt) {
-      debugPrint('VoiceMic: debug bypass — applyCommandFromText("ver conejos")');
-      await vm.applyCommandFromText('ver conejos');
-      if (mounted) setState(() {});
-      return;
-    }
-
-    await vm.toggleMicrophone();
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vm = context.watch<VoiceViewModel>();
-    final listening = vm.isVoiceModeEnabled;
-    final scheme = Theme.of(context).colorScheme;
-
-    return FloatingActionButton.small(
-      heroTag: widget.heroTag,
-      tooltip: listening ? 'Detener y procesar' : 'Voz',
-      backgroundColor:
-          listening ? scheme.errorContainer : scheme.secondaryContainer,
-      foregroundColor:
-          listening ? scheme.onErrorContainer : scheme.onSecondaryContainer,
-      onPressed: _toggle,
-      child: const Icon(Icons.mic),
     );
   }
 }

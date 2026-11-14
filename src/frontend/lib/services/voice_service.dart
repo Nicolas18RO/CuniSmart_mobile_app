@@ -28,6 +28,9 @@ class VoiceService {
   final FlutterTts _tts;
 
   bool _speechInitialized = false;
+  Future<bool>? _initializationInFlight;
+  int _voiceInteraction = 0;
+  bool _partialLogged = false;
   bool _ttsCompletionConfigured = false;
   List<String> _sttLocaleIds = const [];
   bool _isSpeaking = false;
@@ -70,6 +73,18 @@ class VoiceService {
     if (_speechInitialized) {
       return _speech.isAvailable;
     }
+    final pending = _initializationInFlight;
+    if (pending != null) return pending;
+    final initialization = _initializeSpeech();
+    _initializationInFlight = initialization;
+    try {
+      return await initialization;
+    } finally {
+      _initializationInFlight = null;
+    }
+  }
+
+  Future<bool> _initializeSpeech() async {
     _speechInitialized = await _speech.initialize(
       debugLogging: false,
       onError: (e) {
@@ -138,21 +153,33 @@ class VoiceService {
     debugPrint('VoiceService: start listening');
 
     lastRecognizedWords = null;
+    final interactionId = ++_voiceInteraction;
+    _partialLogged = false;
 
     final effectiveListenFor = listenFor ?? _defaultListenFor;
     final effectivePauseFor = pauseFor ?? _defaultPauseFor;
 
+    final listenClock = Stopwatch()..start();
     try {
       await _speech.listen(
         onResult: (SpeechRecognitionResult result) {
+          if (!result.finalResult && !_partialLogged && !kReleaseMode) {
+            _partialLogged = true;
+            debugPrint(
+              '[VOICE][$interactionId][STT_PARTIAL] "${result.recognizedWords}"',
+            );
+          }
           if (!result.finalResult) {
             return;
           }
           lastRecognizedWords = result.recognizedWords;
           onRecognitionResult?.call(result);
-          debugPrint(
-            'VoiceService: final result "${result.recognizedWords}"',
-          );
+          if (!kReleaseMode) {
+            debugPrint(
+                '[VOICE][$interactionId][STT_FINAL] "${result.recognizedWords}" final=true locale=$localeId');
+            debugPrint(
+                'VoiceTiming interaction=$interactionId stt_final_ms=${listenClock.elapsedMilliseconds}');
+          }
         },
         pauseFor: effectivePauseFor,
         listenFor: effectiveListenFor,
@@ -183,6 +210,7 @@ class VoiceService {
     await _configureTtsCompletion();
 
     _isSpeaking = true;
+    final speakClock = Stopwatch()..start();
     final done = Completer<void>();
     _speakDone = done;
 
@@ -193,6 +221,10 @@ class VoiceService {
         Duration(milliseconds: (t.length * 80).clamp(800, 20000)),
         onTimeout: () {},
       );
+      if (!kReleaseMode) {
+        debugPrint(
+            'VoiceTiming tts_complete_ms=${speakClock.elapsedMilliseconds}');
+      }
     } catch (e, st) {
       debugPrint('VoiceService: speak failed: $e\n$st');
     } finally {

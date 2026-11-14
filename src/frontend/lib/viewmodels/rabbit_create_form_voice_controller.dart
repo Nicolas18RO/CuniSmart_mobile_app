@@ -17,6 +17,7 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
 
   String sex = 'male';
   String status = 'active';
+  String genealogyKnowledge = 'UNKNOWN';
 
   bool _editMode = false;
   bool _voiceSexExplicit = false;
@@ -75,6 +76,7 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
     birthDate.text = r.birthDate;
     weight.text = r.weight?.toString() ?? '';
     status = r.status;
+    genealogyKnowledge = r.genealogyKnowledge;
     notes.text = r.notes;
     _voiceSexExplicit = true;
     _weightVoiceAddressed = true;
@@ -86,6 +88,11 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
   void setSex(String value) {
     sex = value;
     _voiceSexExplicit = true;
+    notifyListeners();
+  }
+
+  void setGenealogyKnowledge(String value) {
+    genealogyKnowledge = value;
     notifyListeners();
   }
 
@@ -187,7 +194,8 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
     );
   }
 
-  String buildConfirmationPrompt() => VoiceAIEngine.rabbitCreateFormConfirmationPrompt();
+  String buildConfirmationPrompt() =>
+      VoiceAIEngine.rabbitCreateFormConfirmationPrompt();
 
   /// Tras [applyAssignments]: confirma lo entendido + siguiente instrucción (un campo por turno),
   /// o resumen + pregunta de confirmación cuando el borrador está completo.
@@ -245,6 +253,7 @@ class RabbitCreateFormVoiceController extends ChangeNotifier {
     notes.clear();
     sex = 'male';
     status = 'active';
+    genealogyKnowledge = 'UNKNOWN';
     _editMode = false;
     _voiceSexExplicit = false;
     _weightVoiceAddressed = false;

@@ -1,14 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
+import 'dart:developer' as developer;
+import '../models/local_uuid.dart';
 
 import '../core/errors/api_exception.dart';
 import '../core/network/api_client.dart';
+import '../data/local/sync_evidence_store.dart';
 import '../models/rabbit.dart';
 import '../models/sync_operation.dart';
 import '../models/sync_status.dart';
+import 'auth_service.dart';
 import 'connectivity_gate.dart';
 import 'rabbit_local_store.dart';
 import 'sync_engine.dart';
+import 'r3_publisher.dart';
 
 /// Rabbit API + Drift cache/queue. [SyncEngine] drains pending operations.
 class RabbitService {
@@ -16,35 +21,129 @@ class RabbitService {
     this._client,
     this._local, {
     ConnectivityGate? connectivity,
-  })  : _connectivity = connectivity ?? FakeConnectivity(online: true),
+    AuthService? auth,
+    Future<bool> Function()? authorizePublication,
+    bool Function()? remoteAllowed,
+    bool r3PublicationEnabled = false,
+    SyncEvidenceStore? r3Evidence,
+    bool Function()? scopeCurrent,
+  })  : _auth = auth,
+        _r3PublicationEnabled = r3PublicationEnabled,
+        _authorizePublication = authorizePublication,
+        _remoteAllowed = remoteAllowed,
+        _connectivity = connectivity ?? FakeConnectivity(online: true),
         _engine = SyncEngine(
           _client,
           _local,
           connectivity ?? FakeConnectivity(online: true),
+          authorizePublication: authorizePublication,
+          remoteAllowed: remoteAllowed,
+          scopeCurrent: scopeCurrent,
+          r3Publisher:
+              r3Evidence == null ? null : R3Publisher(_client, r3Evidence),
         );
 
   final ApiClient _client;
   final RabbitLocalStore _local;
   final ConnectivityGate _connectivity;
   final SyncEngine _engine;
+  final AuthService? _auth;
+  final bool _r3PublicationEnabled;
+  final Future<bool> Function()? _authorizePublication;
+  final bool Function()? _remoteAllowed;
+  RabbitService? _accountService;
+  int? _accountGeneration;
+
+  int? get generation => _auth?.generation;
+
+  void disconnected() => _auth?.markDisconnected();
+
+  Future<T> _scoped<T>(Future<T> Function(RabbitService) action) async {
+    final auth = _auth!;
+    final generation = auth.generation;
+    if (!await _connectivity.isOnline()) auth.markDisconnected();
+    if (!auth.localDataUnlocked ||
+        !await auth.canAccessLocally() ||
+        !auth.localDataUnlocked ||
+        generation != auth.generation) {
+      throw ApiException('No hay una sesión autorizada',
+          code: 'session_changed');
+    }
+    final owner = auth.ownerId;
+    if (owner == null) {
+      throw ApiException('No hay una cuenta autorizada',
+          code: 'session_changed');
+    }
+    bool isCurrent() =>
+        auth.generation == generation &&
+        auth.ownerId == owner &&
+        auth.localDataUnlocked;
+    if (_accountGeneration != generation) {
+      _accountGeneration = generation;
+      _accountService = RabbitService(
+        _client,
+        _local.forOwner(owner, isCurrent),
+        connectivity: _connectivity,
+        authorizePublication: () async =>
+            isCurrent() &&
+            await auth.verifySession() == SessionVerification.verified &&
+            isCurrent() &&
+            auth.remoteVerified,
+        remoteAllowed: () => isCurrent() && auth.remoteVerified,
+        scopeCurrent: isCurrent,
+        r3Evidence: _r3PublicationEnabled
+            ? _local.syncEvidence(owner, generation, isCurrent)
+            : null,
+      );
+    }
+    final result = await action(_accountService!);
+    if (!isCurrent()) {
+      throw ApiException('La sesión cambió', code: 'session_changed');
+    }
+    return result;
+  }
+
+  void _requireRemote() {
+    _local.checkSession();
+    if (_remoteAllowed?.call() == false) {
+      throw ApiException('Servidor no verificado para esta sesión',
+          code: 'network');
+    }
+  }
 
   static const String _path = '/api/rabbits/';
 
-  Future<List<Rabbit>> readLocalRabbits() => _local.readActive();
+  Future<List<Rabbit>> readLocalRabbits() => _auth == null
+      ? _local.readActive()
+      : _scoped((service) => service.readLocalRabbits());
 
-  Future<List<SyncOperation>> readPendingOperations() =>
-      _local.readPendingOperations();
+  Future<List<SyncOperation>> readPendingOperations() => _auth == null
+      ? _local.readPendingOperations()
+      : _scoped((service) => service.readPendingOperations());
 
-  Future<List<SyncOperation>> readRetryableOperations() =>
-      _local.readRetryableOperations();
+  Future<List<SyncOperation>> readRetryableOperations() => _auth == null
+      ? _local.readRetryableOperations()
+      : _scoped((service) => service.readRetryableOperations());
 
-  Future<List<SyncOperation>> readConflictOperations() =>
-      _local.readConflictOperations();
+  Future<List<SyncOperation>> readConflictOperations() => _auth == null
+      ? _local.readConflictOperations()
+      : _scoped((service) => service.readConflictOperations());
 
-  Future<void> syncPending() => _engine.syncPending();
+  Future<void> syncPending() => _auth == null
+      ? _engine.syncPending()
+      : _scoped((service) => service.syncPending());
+
+  void requestR3Publication() {
+    if (!_r3PublicationEnabled) return;
+    unawaited(syncPending().catchError((Object error) {
+      developer.log('R3 publication deferred', name: 'CuniSmart.Sync');
+    }));
+  }
 
   Future<List<Rabbit>> fetchRabbits() async {
+    if (_auth != null) return _scoped((service) => service.fetchRabbits());
     try {
+      _requireRemote();
       final raw = await _client.get(
         _path,
         headers: {'Accept': 'application/json'},
@@ -69,14 +168,19 @@ class RabbitService {
   }
 
   Future<Rabbit> lookupByUuid(String uuid) async {
+    if (_auth != null) return _scoped((service) => service.lookupByUuid(uuid));
     final local = await _local.readByUuid(uuid);
     if (local != null && local.deletedAt == null) {
       return local;
     }
-    if (!await _connectivity.isOnline()) {
+    if (_local.ownerId != null && local?.deletedAt != null) {
+      throw ApiException('El animal fue eliminado');
+    }
+    if (_remoteAllowed?.call() == false || !await _connectivity.isOnline()) {
       throw ApiException('El animal no está disponible localmente');
     }
     try {
+      _requireRemote();
       final raw = await _client.get(
         '$_path$uuid/',
         headers: {'Accept': 'application/json'},
@@ -98,7 +202,17 @@ class RabbitService {
   }
 
   Future<Rabbit> fetchRabbit(String uuid) async {
+    if (_auth != null) return _scoped((service) => service.fetchRabbit(uuid));
+    if (_local.ownerId != null) {
+      final local = await _local.readByUuid(uuid);
+      if (local != null && local.deletedAt == null) return local;
+      if (local?.deletedAt != null) {
+        throw ApiException('El animal fue eliminado');
+      }
+      return lookupByUuid(uuid);
+    }
     try {
+      _requireRemote();
       final path = '$_path$uuid/';
       final raw = await _client.get(
         path,
@@ -128,9 +242,22 @@ class RabbitService {
     double? weight,
     required String status,
     String notes = '',
+    String genealogyKnowledge = 'UNKNOWN',
     String? uuid,
   }) async {
-    final localUuid = uuid ?? _newUuid();
+    if (_auth != null) {
+      return _scoped((service) => service.createRabbit(
+          name: name,
+          breed: breed,
+          sex: sex,
+          birthDate: birthDate,
+          weight: weight,
+          status: status,
+          notes: notes,
+          genealogyKnowledge: genealogyKnowledge,
+          uuid: uuid));
+    }
+    final localUuid = uuid ?? newLocalUuid();
     final bodyMap = <String, dynamic>{
       'uuid': localUuid,
       'name': name,
@@ -139,9 +266,11 @@ class RabbitService {
       'birth_date': birthDate,
       'status': status,
       'notes': notes,
+      'genealogy_knowledge': genealogyKnowledge,
       if (weight != null) 'weight': weight,
     };
     try {
+      _requireRemote();
       final raw = await _client.post(
         _path,
         body: jsonEncode(bodyMap),
@@ -164,6 +293,7 @@ class RabbitService {
         weight: weight,
         status: status,
         notes: notes,
+        genealogyKnowledge: genealogyKnowledge,
       );
     } catch (e, st) {
       Error.throwWithStackTrace(
@@ -182,8 +312,42 @@ class RabbitService {
     double? weight,
     required String status,
     String notes = '',
+    String? genealogyKnowledge,
   }) async {
+    if (_auth != null) {
+      return _scoped((service) => service.updateRabbit(
+          name: name,
+          breed: breed,
+          sex: sex,
+          birthDate: birthDate,
+          weight: weight,
+          status: status,
+          notes: notes,
+          genealogyKnowledge: genealogyKnowledge,
+          uuid: uuid));
+    }
     final current = await _local.readByUuid(uuid);
+    if (_local.ownerId != null) {
+      if (current == null || current.deletedAt != null) {
+        throw ApiException('El animal no está disponible en esta cuenta');
+      }
+      if (current.syncStatus == RabbitSyncStatus.conflict) {
+        throw ApiException('Resuelve el conflicto antes de editar');
+      }
+      if (current.syncStatus != RabbitSyncStatus.synced) {
+        return _updateOffline(
+          uuid: uuid,
+          name: name,
+          breed: breed,
+          sex: sex,
+          birthDate: birthDate,
+          weight: weight,
+          status: status,
+          notes: notes,
+          genealogyKnowledge: genealogyKnowledge,
+        );
+      }
+    }
     final bodyMap = <String, dynamic>{
       'name': name,
       'breed': breed,
@@ -191,10 +355,13 @@ class RabbitService {
       'birth_date': birthDate,
       'status': status,
       'notes': notes,
+      'genealogy_knowledge':
+          genealogyKnowledge ?? current?.genealogyKnowledge ?? 'UNKNOWN',
       'version': current?.version ?? 1,
       if (weight != null) 'weight': weight,
     };
     try {
+      _requireRemote();
       final raw = await _client.put(
         '$_path$uuid/',
         body: jsonEncode(bodyMap),
@@ -217,6 +384,7 @@ class RabbitService {
           weight: weight,
           status: status,
           notes: notes,
+          genealogyKnowledge: genealogyKnowledge,
         );
         await _recordOnlineConflict(uuid, e);
         return (await _local.readByUuid(uuid))!;
@@ -231,6 +399,7 @@ class RabbitService {
         weight: weight,
         status: status,
         notes: notes,
+        genealogyKnowledge: genealogyKnowledge,
       );
     } catch (e, st) {
       Error.throwWithStackTrace(
@@ -241,7 +410,22 @@ class RabbitService {
   }
 
   Future<void> deleteRabbit(String uuid) async {
+    if (_auth != null) return _scoped((service) => service.deleteRabbit(uuid));
+    if (_local.ownerId != null) {
+      final current = await _local.readByUuid(uuid);
+      if (current == null || current.deletedAt != null) {
+        throw ApiException('El animal no está disponible en esta cuenta');
+      }
+      if (current.syncStatus == RabbitSyncStatus.conflict) {
+        throw ApiException('Resuelve el conflicto antes de eliminar');
+      }
+      if (current.syncStatus != RabbitSyncStatus.synced) {
+        await _deleteOffline(uuid);
+        return;
+      }
+    }
     try {
+      _requireRemote();
       await _client.delete(
         '$_path$uuid/',
         headers: {'Accept': 'application/json'},
@@ -267,10 +451,12 @@ class RabbitService {
     double? weight,
     required String status,
     required String notes,
+    required String genealogyKnowledge,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final rabbit = Rabbit(
       id: 0,
+      userId: _local.ownerId ?? 0,
       uuid: uuid,
       name: name,
       breed: breed,
@@ -279,18 +465,21 @@ class RabbitService {
       weight: weight,
       status: status,
       notes: notes,
+      genealogyKnowledge: genealogyKnowledge,
       version: 1,
       createdAt: now,
       updatedAt: now,
       syncStatus: RabbitSyncStatus.pendingCreate,
     );
-    await _local.upsert(rabbit);
-    await _local.enqueueOrCoalesce(
-      rabbitUuid: uuid,
-      type: SyncOperationType.create,
-      payload: jsonEncode(_payloadFrom(rabbit)),
-      baseVersion: 1,
-    );
+    await _local.transaction(() async {
+      await _local.upsert(rabbit);
+      await _local.enqueueOrCoalesce(
+        rabbitUuid: uuid,
+        type: SyncOperationType.create,
+        payload: jsonEncode(_payloadFrom(rabbit)),
+        baseVersion: 1,
+      );
+    });
     return rabbit;
   }
 
@@ -303,6 +492,7 @@ class RabbitService {
     double? weight,
     required String status,
     required String notes,
+    String? genealogyKnowledge,
   }) async {
     final current = await _local.readByUuid(uuid);
     if (current == null) {
@@ -319,34 +509,39 @@ class RabbitService {
       clearWeight: weight == null,
       status: status,
       notes: notes,
+      genealogyKnowledge: genealogyKnowledge ?? current.genealogyKnowledge,
       updatedAt: now,
       syncStatus: stillCreate
           ? RabbitSyncStatus.pendingCreate
           : RabbitSyncStatus.pendingUpdate,
     );
-    await _local.upsert(updated);
-    await _local.enqueueOrCoalesce(
-      rabbitUuid: uuid,
-      type: SyncOperationType.update,
-      payload: jsonEncode(_payloadFrom(updated)),
-      baseVersion: current.version,
-    );
+    await _local.transaction(() async {
+      await _local.upsert(updated);
+      await _local.enqueueOrCoalesce(
+        rabbitUuid: uuid,
+        type: SyncOperationType.update,
+        payload: jsonEncode(_payloadFrom(updated)),
+        baseVersion: current.version,
+        beforeUpdate: current,
+      );
+    });
     return updated;
   }
 
-  Future<void> _deleteOffline(String uuid) async {
-    final current = await _local.readByUuid(uuid);
-    await _local.enqueueOrCoalesce(
-      rabbitUuid: uuid,
-      type: SyncOperationType.delete,
-      payload: jsonEncode({'uuid': uuid}),
-      baseVersion: current?.version ?? 1,
-    );
-    final remaining = await _local.readByUuid(uuid);
-    if (remaining != null) {
-      await _local.markDeleted(uuid, status: RabbitSyncStatus.pendingDelete);
-    }
-  }
+  Future<void> _deleteOffline(String uuid) => _local.transaction(() async {
+        final current = await _local.readByUuid(uuid);
+        await _local.enqueueOrCoalesce(
+          rabbitUuid: uuid,
+          type: SyncOperationType.delete,
+          payload: jsonEncode({'uuid': uuid}),
+          baseVersion: current?.version ?? 1,
+        );
+        final remaining = await _local.readByUuid(uuid);
+        if (remaining != null) {
+          await _local.markDeleted(uuid,
+              status: RabbitSyncStatus.pendingDelete);
+        }
+      });
 
   Map<String, dynamic> _payloadFrom(Rabbit rabbit) {
     return <String, dynamic>{
@@ -357,23 +552,40 @@ class RabbitService {
       'birth_date': rabbit.birthDate,
       'status': rabbit.status,
       'notes': rabbit.notes,
+      'genealogy_knowledge': rabbit.genealogyKnowledge,
       'version': rabbit.version,
       if (rabbit.weight != null) 'weight': rabbit.weight,
     };
   }
 
   Future<void> resolveConflictKeepRemote(String uuid) async {
+    if (_auth != null) {
+      return _scoped((service) => service.resolveConflictKeepRemote(uuid));
+    }
     final op = await _local.readConflictForUuid(uuid);
     if (op == null || op.serverSnapshot == null) {
       throw ApiException('No hay un conflicto para resolver');
     }
     final decoded = jsonDecode(op.serverSnapshot!) as Map<String, dynamic>;
     final remote = Rabbit.fromJson(decoded);
-    await _local.upsert(remote.copyWith(syncStatus: RabbitSyncStatus.synced));
-    await _local.markOperation(id: op.id, status: SyncOpStatus.completed);
+    if (remote.uuid != uuid) throw ApiException('Conflicto de otro registro');
+    await _local.transaction(() async {
+      await _local.upsert(remote.copyWith(syncStatus: RabbitSyncStatus.synced));
+      await _local.markOperation(id: op.id, status: SyncOpStatus.completed);
+    });
   }
 
   Future<void> resolveConflictKeepLocal(String uuid) async {
+    if (_auth != null) {
+      return _scoped((service) => service.resolveConflictKeepLocal(uuid));
+    }
+    final authorize = _authorizePublication;
+    if (authorize != null) {
+      if (!await _connectivity.isOnline() || !await authorize()) {
+        throw ApiException('Verifica la sesión antes de publicar');
+      }
+    }
+    _requireRemote();
     final op = await _local.readConflictForUuid(uuid);
     final local = await _local.readByUuid(uuid);
     if (op == null || local == null || op.serverSnapshot == null) {
@@ -381,17 +593,24 @@ class RabbitService {
     }
     final remote = jsonDecode(op.serverSnapshot!) as Map<String, dynamic>;
     final remoteVersion = (remote['version'] as num?)?.toInt() ?? local.version;
+    _requireRemote();
     final raw = await _client.put(
       '$_path$uuid/',
       body: jsonEncode(_payloadFrom(local.copyWith(version: remoteVersion))),
+      retryOnUnauthorized: false,
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
     );
     final updated = Rabbit.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    await _local.upsert(updated.copyWith(syncStatus: RabbitSyncStatus.synced));
-    await _local.markOperation(id: op.id, status: SyncOpStatus.completed);
+    _requireRemote();
+    if (updated.uuid != uuid) throw ApiException('UUID de respuesta inválido');
+    await _local.transaction(() async {
+      await _local
+          .upsert(updated.copyWith(syncStatus: RabbitSyncStatus.synced));
+      await _local.markOperation(id: op.id, status: SyncOpStatus.completed);
+    });
   }
 
   Future<void> _recordOnlineConflict(String uuid, ApiException error) async {
@@ -434,17 +653,9 @@ class RabbitService {
 
   bool _isUnavailable(ApiException e) {
     if (e.code == 'network') return true;
+    if (e.statusCode == 401 && _remoteAllowed?.call() == false) return true;
     final code = e.statusCode;
     if (code == null) return true;
     return code >= 500;
-  }
-
-  String _newUuid() {
-    final rnd = Random.secure();
-    final b = List<int>.generate(16, (_) => rnd.nextInt(256));
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    String h(int i) => b[i].toRadixString(16).padLeft(2, '0');
-    return '${h(0)}${h(1)}${h(2)}${h(3)}-${h(4)}${h(5)}-${h(6)}${h(7)}-${h(8)}${h(9)}-${h(10)}${h(11)}${h(12)}${h(13)}${h(14)}${h(15)}';
   }
 }

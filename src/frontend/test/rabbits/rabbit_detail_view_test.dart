@@ -13,8 +13,16 @@ import 'package:frontend/services/rabbit_service.dart';
 import 'package:frontend/viewmodels/rabbit_viewmodel.dart';
 import 'package:frontend/views/rabbits/rabbit_detail_view.dart';
 import 'package:frontend/views/rabbits/rabbit_qr_view.dart';
+import 'package:frontend/views/rabbits/widgets/rabbit_presentation.dart';
 
 void main() {
+  late AppDatabase db;
+
+  setUp(() {
+    db = AppDatabase.memory();
+    addTearDown(db.close);
+  });
+
   const rabbit = Rabbit(
     id: 1,
     uuid: '11111111-1111-1111-1111-111111111111',
@@ -43,7 +51,7 @@ void main() {
                 (_) async => http.Response('[]', 200),
               ),
             ),
-            RabbitLocalStore(AppDatabase.memory()),
+            RabbitLocalStore(db),
           ),
         ),
         child: const MaterialApp(home: RabbitDetailView(rabbit: rabbit)),
@@ -55,7 +63,27 @@ void main() {
     expect(find.text('Hembra'), findsOneWidget);
     expect(find.text('2024-01-15'), findsOneWidget);
     expect(find.text('2.5 kg'), findsOneWidget);
-    expect(find.text('Activo'), findsOneWidget);
+    final statusChip = find.byType(RabbitStatusChip);
+    expect(statusChip, findsOneWidget);
+    expect(tester.widget<RabbitStatusChip>(statusChip).status, 'active');
+    expect(
+      find.descendant(of: statusChip, matching: find.text('Activo')),
+      findsOneWidget,
+    );
+    final statusMetric = find.byWidgetPredicate(
+      (widget) =>
+          widget is Semantics && widget.properties.label == 'Estado: Activo',
+    );
+    expect(statusMetric, findsOneWidget);
+    expect(
+      find.descendant(of: statusMetric, matching: find.text('Estado')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: statusMetric, matching: find.text('Activo')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('Estado: Activo'), findsOneWidget);
     expect(find.text('Mansa'), findsOneWidget);
     expect(find.text('11111111-1111-1111-1111-111111111111'), findsOneWidget);
     expect(find.text('Sincronizado'), findsOneWidget);
@@ -101,7 +129,7 @@ void main() {
                 (_) async => http.Response('[]', 200),
               ),
             ),
-            RabbitLocalStore(AppDatabase.memory()),
+            RabbitLocalStore(db),
           ),
         ),
         child:
@@ -141,7 +169,7 @@ void main() {
                 (_) async => http.Response('[]', 200),
               ),
             ),
-            RabbitLocalStore(AppDatabase.memory()),
+            RabbitLocalStore(db),
           ),
         ),
         child: const MaterialApp(home: RabbitDetailView(rabbit: rabbit)),
